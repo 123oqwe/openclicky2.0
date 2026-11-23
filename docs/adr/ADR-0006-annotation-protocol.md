@@ -64,7 +64,7 @@
 
 规则：
 
-- 坐标为**该屏截图图片的像素坐标**（模型看到的图），由 `annotations::to_global()` 换算：`global = display.origin + pixel / display.scale`。
+- 坐标为**该屏截图图片的像素坐标**（模型看到的图），由 `annotations::to_global()` 换算：`global = display.origin + px_picture × (display.width / shot.width_px)`。`display.scale` 只描述物理像素与逻辑点，**不能**用于模型图（模型图长边被缩到 1280）。解析必须同时拿到 `DisplayInfo` 与 `DisplayShot` 像素尺寸，缺失时拒绝换算。
 - 越界坐标裁剪到该屏范围内；`screenN` 不存在 → 回退鼠标屏并记 `annotation.fallback_screen`。
 - 标签长度裁剪到 40 字符；控制字符剥离。
 - 解析后指纹（`plan_id`）用于前端幂等渲染。

@@ -53,7 +53,7 @@
 - `SecretString`：`Debug`/`Display` 打码；禁止 `serde::Serialize`。
 - 脱敏：`security::redact` 覆盖 `Authorization`、`x-api-key`、`sk-`、`Bearer`、32+ 位 hex/base64、`key=`。
 - 日志：默认不写用户文本（`debug_allow_text=false`）。
-- 删除：`deletion::plan()` 生成步骤清单 → 逐项执行 → 逐项报告成功/失败（S4"删除失败要明说"）。
+- 删除：`deletion::plan()` 按 tech-prd §08.3 的**八步**顺序（DB → 记忆 → 工作区 → 词典/缓存 → 钥匙串 → 日志 → `app.db.bak` → 报告）逐项执行并逐项报告（S4"删除失败要明说"）。系统级备份（Time Machine 等）不在保证范围，必须在报告中明示。
 - 权限撤销：每个工具调用前重新检查（macOS `AXIsProcessTrusted`、`CGPreflightScreenCaptureAccess`；Linux `DISPLAY`；Windows 无）。
 
 ## 08 理由与取舍

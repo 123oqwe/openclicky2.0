@@ -50,7 +50,7 @@
 
 采用 **A**：
 
-- `Task`：`{id, name, goal, state, created_at, updated_at, checkpoint, units_charged, workspace}`。
+- `Task`：`{id, name, goal, state, created_at, updated_at, checkpoint{version,step,goal_notes,facts,pending_question,pending_call,actions}, epoch, retries, units, steps_done, result, error_code, workspace}`。`epoch` 是唯一的写入所有权凭据（见 SDD A-12）；`Paused` 必须带原因码（inactivity/interrupted/upgrade/incompatible/budget）。
 - 状态：`Queued → Running ⇄ WaitingUser | WaitingApproval → Completed | CompletedUnverified | Failed | Paused | Canceled`。
 - 循环：`build_context → chat(tools) → 若有 tool_call 则 policy.check → execute → 记录 → checkpoint`，步数上限 30。
 - `Policy`（模型外）：

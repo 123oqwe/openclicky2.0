@@ -181,8 +181,8 @@ Tauri 2 壳 + Rust 核心 + 无框架 TypeScript；SQLite；TOML 配置；系统
 | INV-1 | 未按键时屏幕采集次数 = 0 | ✅ |
 | INV-2 | 密钥明文不出现在日志/SQLite/导出物 | ✅ |
 | INV-3 | 不代填密码/验证码/卡号 | ✅ |
-| INV-4 | 删除账号后本机无残留可读用户内容 | ✅ |
-| INV-5 | 工具写入不得逃出工作区（含符号链接） | ✅ |
+| INV-4 | 删除账号后 OpenClicky 的数据目录与钥匙串中不再有可读用户内容；**系统级备份（Time Machine 等）与磁盘残留块不在保证范围**，必须在删除报告中逐项明示 | ✅ |
+| INV-5 | 工具**默认**不得写出工作区（含符号链接与 `..`）；只有在用户逐次批准后，才可写指定工作区外路径，且必须审计（与 TR-23 一致；默认拒绝优先） | ✅ |
 | INV-6 | 同一任务用量不重复计入 | ✅ |
 | INV-7 | 任一工具调用前重新检查授权与预算 | ✅ |
 | INV-8 | 非幂等工具在"结果未知"时不自动重放 | ✅ |
@@ -319,7 +319,7 @@ sequenceDiagram
   OR->>OV: clear()
 ```
 
-**各步失败去向**：`capture` 失败 → 无图回答 + 提示缺权限；`stt` 失败 → 重试 1 次 → `E_SHORT/E_NET`；`chat` 失败 → 分类错误卡；`speech` 失败 → OS TTS → 剪贴板；`store` 失败 → 回答仍展示，标"未保存"。
+**各步失败去向**：`capture` 失败 → 无图回答 + 提示缺权限；`stt` 失败 → 重试 1 次（总共 2 次）→ `E_SHORT/E_NET`；`chat` 失败 → 分类错误卡；`speech` 失败 → OS TTS → 剪贴板；`store` 失败 → 回答仍展示，标"未保存"。
 
 ### 07.2 流程 TASK（交办）
 
@@ -379,10 +379,10 @@ release → final transcribe → tail-correct(20s) → cleanup → dict-learning
 | audit_log | 权威（只追加） | `app.db` | 不允许修改 |
 | 记忆 | 权威 | `memory/*.md` | 文件 |
 | 配置 | 权威 | `config.toml` | 文件 |
-| 词典 | 权威 | `dictation/dictionary.json` | 文件 |
+| 词典 | 权威 | SQLite `dict_entries` 表 | DB |
 | 用量百分比 | 派生 | 计算 | 重算 |
 | 渲染计划 | 临时 | 内存 | 丢弃 |
-| 日志/指标 | 派生 | 文件 | 可删 |
+| 指标 | 派生（可重建，不参与正确性判定） | SQLite `metrics_daily` + 文件日志 | 可删/可重算 |
 
 ### 08.2 事务与双写
 
@@ -411,10 +411,10 @@ release → final transcribe → tail-correct(20s) → cleanup → dict-learning
 |---|---|---|---|---|---|
 | `HttpTransport::post_json` | URL 合法 | 已取得响应（任意状态码） | 连接/DNS/TLS/超时 | 调用方给 | 幂等（GET 类）；POST 由上层决定 |
 | `post_json_stream` | — | 已建立流 | 同上 + 协议 | 首字节 30s | 不重试 |
-| `ScreenSource::capture_all` | 门禁已开 | 至少一屏成功 | 无权限/无显示器/编码 | 1s/屏，总 1.5s | 可重试 1 次 |
+| `ScreenSource::capture_all(&CaptureGuard)` | 必须持有 `CaptureGuard`（类型级） | 至少一屏成功 | 无权限/无显示器/编码 | 1s/屏，总 1.5s | 可重试 1 次 |
 | `AudioSource::start/stop` | 设备可用 | 已取得完整 PCM | 无权限/设备丢失 | — | start 幂等 |
 | `Transcriber::transcribe` | 音频 ≥ 200ms | 文本（可能空） | 供应商/音频 | 30s | 可重试 1 次 |
-| `ChatProvider::complete` | 有 key、有 model | 完整文本/工具调用 | 6 类（见 §13） | 180s | 仅可重试类 |
+| `ChatProvider::complete` | 有 key、有 model | 完整文本/工具调用 | 9 类（见 §13.1） | 180s | 仅可重试类 |
 | `complete_stream` | 同上 | 全部 delta 已投递 | 同上 + 断流 | 首字节 30s | 产出后不重试 |
 | `SpeechOut::speak` | 文本非空 | 播放句柄（可取消） | 供应商/设备 | — | 不重试，降级 |
 | `TextInjector::inject` | 有聚焦目标 | 已注入或已复制 | 无焦点/无权限/失败 | 2s | 不重试（避免重复文本） |
@@ -563,7 +563,7 @@ release → final transcribe → tail-correct(20s) → cleanup → dict-learning
 | 截图（2×4K） | 250ms p95 | `capture.done.duration_ms` | 降采样；单屏 |
 | STT（≤12s） | 900ms p50 | `stt.latency_ms` | 提示"网络慢" |
 | 首 delta | 1500ms p50 | `voice.first_delta_ms` | 用 fast 模型 |
-| TTS 首帧 | 1000ms | `voice.first_audio_ms` | OS TTS |
+| TTS 首帧（组件预算，非端到端 SLI） | 1000ms | `tts.first_frame_ms` | OS TTS |
 | 整轮 | 5s p95 | `voice.done` | — |
 
 ### 14.2 容量模型
@@ -906,7 +906,7 @@ Wayland 下启动时必须检测并显示"需要 X11 会话（或改用剪贴板
 | 字段 | 内容 |
 |---|---|
 | 来源 | 源 PRD B2、S1、S3；ADR-0003 |
-| 规范性要求 | 当且仅当存在打开的 `CaptureGuard` 时，`ScreenSource::capture_all` 可被调用；其余任何路径（含"预热""缓存刷新""建议生成"）都不得调用。一次会话只使用本次采集的截图回答本问题。 |
+| 规范性要求 | `ScreenSource::capture_all` 的签名**要求传入 `&CaptureGuard`**，没有 guard 的代码在类型层无法采集。守卫只能由用户动作（热键、引导里用户亲自按键、用户点重试/校准）构造；"预热""缓存刷新""建议生成"一律不得构造 guard。一次会话只使用本次采集的截图。 |
 | 适用范围 | 全进程 |
 | 实现策略 | 类型级门禁：`CaptureGate::open(reason)` 是唯一构造入口；`voice` 在采集后立即 `close`；日志记 `capture.gate` 与 `reason` |
 | 保证边界 | 不阻止 OS 自身截图；不检测其他软件截屏行为；不阻止用户在会话中切屏（只保证"那一刻"） |
@@ -962,7 +962,7 @@ Wayland 下启动时必须检测并显示"需要 X11 会话（或改用剪贴板
 | 字段 | 内容 |
 |---|---|
 | 来源 | 源 PRD D1–D4；ADR-0006 |
-| 规范性要求 | 当模型输出 `[POINT:...]`/`[DRAW:...]`/`[STEP:...]` 时，系统必须在 TTS 前剥离标签，并按 `global = origin + px / scale` 换算为全局逻辑坐标；越界必须裁剪；未知 screen 必须回退到鼠标屏并记 `annotation.fallback_screen`；无法解析的标签必须丢弃并记 `annotation.dropped`，且**不得**让用户听到标签文本。 |
+| 规范性要求 | 当模型输出 `[POINT:...]`/`[DRAW:...]`/`[STEP:...]` 时，系统必须在 TTS 前剥离标签，并按**模型所见图的像素**换算：`global = origin + px_picture × (display.width / shot.width_px)`；越界必须裁剪；未知 screen 必须回退到鼠标屏并记 `annotation.fallback_screen`；无法解析的标签必须丢弃并记 `annotation.dropped`，且**不得**让用户听到标签文本。 |
 | 适用范围 | `annotations`、前端渲染 |
 | 实现策略 | 手写扫描器 + 严格解析 + 确定性抖动（seed=plan_id） |
 | 保证边界 | 不保证模型给的坐标精确；不保证冷门软件里的元素可被识别 |
