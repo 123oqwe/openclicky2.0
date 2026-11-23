@@ -3,7 +3,7 @@
 | 项 | 值 |
 |---|---|
 | 编号 | OC2-SDD |
-| 版本 | 1.1（2026-11-23，按评审清单补全 §A） |
+| 版本 | 1.2（2026-11-23，补回 D 章标题：客户端/安全/外部集成） |
 | 状态 | 已批准 |
 | 依据 | `01-tech-prd.md` v1.0、`adr/ADR-0001…0013` |
 | 适用 | `crates/core`、`crates/platform`、`apps/desktop`、`apps/cli`、前端 |
@@ -737,6 +737,8 @@ impl Error { pub fn code(&self) -> &'static str; pub fn user_message(&self) -> S
 | `E_POLICY` | 这个操作需要你确认 | 否 |
 | `E_STATE` | 内部状态异常（已记录） | 否 |
 | `E_PROTOCOL` | 模型返回了无法解析的内容 | 否（降级纯文本） |
+
+## D. 客户端、安全与外部集成
 
 ### 14 前端、交互实现与多端状态
 
