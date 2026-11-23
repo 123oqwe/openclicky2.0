@@ -943,7 +943,7 @@ interface_language = "zh"
 |---|---|---|
 | `xcap` 在 macOS 26 的 Retina 缩放是否与 `scale` 一致 | 指的位置可能偏 | 本地冒烟时用十字线校准（`selftest --calibrate`） |
 | `rdev` 在 Linux Wayland 下不可用 | 带你做不可用 | 检测并禁用，文档说明 |
-| `keyring` 无 secret-service | 降级 | 已实现降级 |
+| `keyring` 无 secret-service | 降级 | 设计已定，实现中（feat/impl） |
 
 变更记录：v1.0 初版；v1.1 补全不变量、单元契约、接口语义、算法、执行所有权、前端状态、适配层、配置生命周期、兼容矩阵、可测试性接口（2026-11-23）。
 

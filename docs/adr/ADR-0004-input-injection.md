@@ -60,7 +60,7 @@
 | 守卫 | 规则 |
 |---|---|
 | G-TERM | 目标进程名命中终端集合（Terminal/iTerm2/WindowsTerminal/powershell/bash/zsh/alacritty/kitty/wezterm）→ 合并换行、剥离首尾空白、拒绝包含 `\n` 的多行；只注入单行 |
-| G-SECRET | 用户语音/文本包含"密码/验证码/卡号/cvv/password/otp"且意图为填写 → 拒绝并说明 |
+| G-SECRET | 文本命中敏感词（密码/验证码/卡号/cvv/password/otp）即拒绝注入并说明，**不判断"意图"**（意图不可靠）；保证边界：不覆盖用户手动输入，也不阻止用户自己粘贴 |
 | G-NOFOCUS | 无聚焦可编辑元素（前台为本应用自身或桌面）→ 不注入，改为在聊天里显示 |
 
 ## 08 理由与取舍

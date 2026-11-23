@@ -53,7 +53,7 @@
 
 - `core::privacy::CaptureGate`：唯一允许触发采集的类型；构造需 `CaptureReason`（`Hotkey`/`UserRetry`/`OnboardingDemo`）。
 - `ScreenSource` trait 在 `platform` 实现；`core` 内看不到平台 API。
-- 采集策略：所有显示器，长边缩到 1280（JPEG q=0.8）发给模型；同时保留一张主屏原始分辨率用于绘制锚点。
+- 采集策略：所有显示器各截一张；**发给模型的最多 3 张**（主屏原图 + 其余屏缩略，长边 1280，JPEG q=0.8）；原图只在本机用于绘制锚点，不随请求发出。
 - 标记鼠标所在显示器索引；模型注解坐标限定在对应索引的图片像素空间。
 
 ## 08 理由与取舍
