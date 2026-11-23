@@ -11,6 +11,12 @@
 | 5 | `docs/04-test-design.md` | `step5-tds.md` | 对话·第五部分（20 项 + AI 4 条） | PASS |
 | 6 | 代码/CI | `step6-implementation.md`（待写） | 第二至五部分的下游约束 | 冻结中 |
 
+## 标准出处
+
+- 验收标准原文：`docs/reviews/standards/source-conversation.md`（从共享链接提取，未改写）。
+- 条目覆盖矩阵：`docs/reviews/standards/coverage.md`（`scripts/criteria-coverage.py` 生成，88/88）。
+- 产品 PRD 逐条对照与缺口：`docs/reviews/standards/product-prd-gap.md`。
+
 ## 判定口径
 
 - **机器检查**（`scripts/doc-audit.py`）：只回答"这一项被写到了吗"，输出 `docs/reviews/audit-output.md`。PASS 不代表内容合格。
