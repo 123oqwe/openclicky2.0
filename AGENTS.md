@@ -39,7 +39,7 @@ There is no frontend yet. `pnpm` commands appear only after `apps/desktop/ui` ex
 
 ## Branch and PR rules
 
-- Branch from `main`: `feat/*`, `fix/*`, `docs/*`, `chore/*`. Never push to `main`.
+- Branch from `main`: `feat/*`, `fix/*`, `docs/*`, `chore/*`. `main` is protected: `docs-and-invariants` is required, history is linear, force-push is off.
 - A docs PR must contain only docs: verify with `gh pr view <n> --json files` before merging. (A docs PR once carried 37 code files; it was reverted.)
 - PR description: what changed, what did **not** change, dependencies, test output, untested items, risk, rollback.
 - "It works" is not evidence. Paste the commands and their output.
