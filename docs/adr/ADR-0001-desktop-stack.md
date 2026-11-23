@@ -1,9 +1,11 @@
-# ADR-0001 桌面技术栈：Tauri 2 + Rust 核心 + 无框架 TypeScript
+# ADR-0001 采用 Tauri 2 单一技术栈承载三平台桌面应用
 
 | 字段 | 内容 |
 |---|---|
 | 01 标识 | ADR-0001 |
-| 状态 | Accepted（2026-11-23） |
+| 状态 | **Accepted**（决策已接受，2026-11-23） |
+| 决策者 | 人类维护者（本项目唯一有权接受者） |
+| 实施状态 | 未实现（本 ADR 为设计基线；实现进度见关联 PR 与 `06-acceptance.md`） |
 | 负责人 | 技术负责人 |
 | 适用范围 | 全仓库；`apps/desktop`、`crates/core`、`crates/platform` |
 | 关联 | OC2-TECH-PRD §11、§22.11；ADR-0003/0004/0005 |
@@ -68,6 +70,8 @@
 
 ## 09 后果与剩余风险
 
+中性变化：职责与接口按本决定重新分配，团队/Agent 的工作方式随之调整；既有习惯做法需要迁移。
+
 正面：一处修 bug 三平台生效；核心逻辑覆盖率可到 80%+；无 async 运行时（同步 HTTP + 线程）使测试确定。
 
 负面：Rust 开发速度慢于 TS；WebView 版本差异（尤其 Linux WebKitGTK）；Tauri 生态变更风险。
@@ -79,6 +83,8 @@
 - 禁止在 `core` 引入 `std::process`、`reqwest`、`tauri`（CI 用 `cargo deny` 风格检查脚本 `xtask/check-core-deps.sh`）。
 - `platform` 之外不得出现 `cfg(target_os)` 分支。
 - 落实确认：`cargo tree -p openclicky-core` 无 GUI/网络依赖；CI 三平台编译通过。
+
+落实确认分两类：**符合决策**（实现是否遵守本决定的约束）与**达到预期**（遵守之后是否真的改善了当初关注的问题）。前者通过不证明后者成立；若仅前者成立，应重新评估本决定而不是宣布成功。
 
 ## 11 重新审视条件、可逆性与退出路径
 

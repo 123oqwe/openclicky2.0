@@ -3,7 +3,7 @@
 | 项 | 值 |
 |---|---|
 | 编号 | OC2-SDD |
-| 版本 | 1.0（2026-11-23） |
+| 版本 | 1.1（2026-11-23，按评审清单补全 §A） |
 | 状态 | 已批准 |
 | 依据 | `01-tech-prd.md` v1.0、`adr/ADR-0001…0013` |
 | 适用 | `crates/core`、`crates/platform`、`apps/desktop`、`apps/cli`、前端 |
@@ -886,4 +886,189 @@ interface_language = "zh"
 | `rdev` 在 Linux Wayland 下不可用 | 带你做不可用 | 检测并禁用，文档说明 |
 | `keyring` 无 secret-service | 降级 | 已实现降级 |
 
-变更记录：v1.0 初版（2026-11-23）。
+变更记录：v1.0 初版；v1.1 补全不变量、单元契约、接口语义、算法、执行所有权、前端状态、适配层、配置生命周期、兼容矩阵、可测试性接口（2026-11-23）。
+
+---
+
+# 附录 A：v1.1 补全（评审清单逐项）
+
+## A-02 设计层不变量（任何流程、并发、恢复下都必须成立）
+
+| 编号 | 不变量 | 由谁保证 | 违反时的现象 |
+|---|---|---|---|
+| INV-D1 | 未开 `CaptureGate` 时，`ScreenSource::capture_all` 调用次数为 0 | `privacy` + 单入口 | 隐私事故 |
+| INV-D2 | 一次 `usage_events` 只对应一次计费意图；`waived=1` 不进入预算 | `usage` + 单事务 | 重复计费 |
+| INV-D3 | 任务状态只由 `agent::transition()` 修改，且满足 §11 表 | `agent` | 状态撕裂 |
+| INV-D4 | 任一工具调用前都重新检查授权与预算 | `runner` | 越权 |
+| INV-D5 | 非幂等工具在"结果未知"时不得自动重放 | `runner` + `task_steps` | 重复副作用 |
+| INV-D6 | 密钥明文不出现在 DB/日志/导出物 | `security` + `secrets` | 泄漏 |
+| INV-D7 | 工作区外写入必须拒绝（含符号链接与 `..`） | `tools::fs` | 破坏用户文件 |
+| INV-D8 | 记忆中的偏好文件不被静默截断 | `memory` | 记住的习惯丢失 |
+
+## A-04 关键单元的完整契约
+
+| 单元 | 前置条件 | 输入约束 | 处理逻辑 | 后置条件 | 副作用 | 失败行为 | 并发约束 | 资源责任 |
+|---|---|---|---|---|---|---|---|---|
+| `VoiceEngine::on_hotkey_up` | 状态=Listening；权限就绪 | 录音 ≥200ms | §09 流程 1 | 状态=Idle；返回 `AskOutcome` | 写 messages/usage；播放声音；画面 | 分类返回 `Error`，状态回 Idle，写事件 | 单飞（`SessionGuard`） | 截图/音频随会话释放 |
+| `TaskRunner::step` | 任务 ∈ {Queued,Running,WaitingApproval,WaitingUser} | goal 非空；步数 < max | 取上下文→模型→策略→执行→检查点 | 状态按 §11 迁移；`task_steps` 追加一行 | 工具副作用（按风险） | 写 `Failed/Paused` + `error_code` | 单任务单执行者（见 A-12） | 工具输出截断 8k token |
+| `DictationEngine::tick` | 状态=Dictating | 缓冲 ≥ 300ms | 转写→合并→注入后缀 | 文本已注入 | 写剪贴板（可还原） | 跳过本次，不中断 | 与 `finish` 互斥 | 环形缓冲固定 60s |
+| `tools::fs::write` | 工作区存在 | 路径已 canonicalize 且在根内 | 临时文件→rename | 文件存在且 hash 可回读 | 覆盖目标 | `Denied`/`Io` | 同路径 60s 内二次写产生 `.conflict` | 备份至 `.trash/` |
+| `routines::decide` | 记录存在 | 时间/网络/预算已给出 | 规则表 | 决策枚举 | 无（纯函数） | 不适用 | 纯函数，可并行 | 无 |
+
+## A-07 接口语义承诺（"成功"到底意味着什么）
+
+| 接口 | 返回成功 = | 不承诺 | 调用方应做 |
+|---|---|---|---|
+| `ChatProvider::complete` | 模型已产出完整文本（可能含工具调用） | 工具参数合法、注解可解析、事实正确 | 校验、降级、记事件 |
+| `ChatProvider::complete_stream` | 已按序收到全部 delta 且流正常结束 | 同上 | 同上 |
+| `AudioSource::stop` | 已取得完整 PCM | 音频含有效人声 | 检查时长/能量 |
+| `TextInjector::inject` | 文本已进入目标或已复制 | 目标应用真的接受（无回读能力） | 用 `InjectOutcome` 区分三级 |
+| `TaskRunner::step` | 已推进一个可审计步骤 | 任务最终会成功 | 看 `TaskState` |
+| `Store::commit_turn` | message+usage+state 同事务已持久化 | 外部副作用已发生 | 不做跨系统假设 |
+
+## A-11 关键算法
+
+**A-11.1 模型路由**（纯函数，决策表）
+
+```
+if is_task                      -> Deep
+if chars > 120                  -> Deep
+if matches(deep_keywords)       -> Deep
+if has_screen && matches(deictic) -> Fast
+if chars <= 12 && matches(greeting) -> Fast
+else                            -> Fast
+```
+`deep_keywords = ["为什么","原理","分析","比较","设计","写一段","检查","排查","debug","explain why"]`
+`deictic = ["这个","这里","这一步","在哪","this","here"]`
+
+**A-11.2 收尾文本纠正**（听写结束时，末 20 秒内允许一次改写）
+
+```
+d = edit_distance(injected_tail, final_tail)
+if d <= max(2, len(final_tail)/8) then replace_tail(final_tail)
+else keep(injected)   // 防抖动
+```
+
+**A-11.3 建议打扰预算**
+
+```
+if hour < 6 -> Suppress(too_early)
+if in_call || focus_mode -> Suppress(busy)
+if paused_until >= today -> Suppress(paused)
+if ignored_mornings >= 3 -> pause(1 day * 2^(n-3), cap 7 days)
+else Show
+```
+
+**A-11.4 定时任务下次触发**
+
+```
+next = smallest t > after satisfying schedule (weekly: 遍历 7 天；daily: 今日或明日；interval: after + n*interval)
+if missed_more_than_one_during_sleep -> run exactly once (catch_up_once)
+```
+
+## A-12 执行所有权、失联与旧执行者恢复
+
+单进程单机，因此不存在真正的分布式竞争；但存在**同一任务的两次执行尝试**（如崩溃后重启、Retry）：
+
+| 机制 | 设计 |
+|---|---|
+| `tasks.epoch` | 整数，`retry/resume` 时 +1；每次写状态必须带当前 epoch |
+| 执行者身份 | `runner_instance_id`（进程启动时生成）+ `epoch` |
+| 写入校验 | `UPDATE tasks SET ... WHERE id=? AND epoch=?`；影响行数 0 → 视为所有权失效，立即停止 |
+| 旧执行者恢复 | 若进程未死而是阻塞，其 `epoch` 已过期 → 下一次写失败 → 停止并记 `task.superseded` |
+| 外部副作用 | 旧执行者在 push 阶段可能已发出请求：因此"结果未知"时不重放非幂等工具（INV-D5） |
+| 心跳 | 每步 + 每 30s；超 20 分钟 → 允许 `recover_interrupted` 接管并 epoch+1 |
+
+**明确写出不保证的事**：无法撤回已经发出的外部请求；接管后的一致性依赖"非幂等工具不重放"而非全局锁。
+
+## A-14 前端状态设计
+
+| 界面 | 加载 | 空 | 错误 | 重复提交 | 权限变化 |
+|---|---|---|---|---|---|
+| notch 聊天 | 骨架 200ms | "按住 ctrl+opt 说话" | 错误卡 + code | 发送按钮禁用 300ms | 提示缺权限卡 |
+| 任务卡 | 状态行"排队中" | 无 | Stop/Retry 按钮 | 幂等（按 task id） | 阻塞并要求授权 |
+| 设置 | 本地即时读 | 默认值 | 行内错误 | 保存去抖 300ms | 引导到系统设置 |
+| 覆盖层 | 不适用 | 不适用 | 静默降级为字幕 | 按 `plan_id` 幂等 | 清屏 |
+
+前端不缓存权威状态；`localStorage` 只存滚动位置与最后页面。
+
+## A-16 适配层规则（不得伪造能力）
+
+| 场景 | 规则 |
+|---|---|
+| provider 不支持 `tools` | `complete` 返回 `BadRequest("tools unsupported")`，runner 降级为"文本协议"或直接失败，**不伪造成功** |
+| provider 不支持 TTS | 回退 OS TTS，并在 `Notice` 中说明 `fallback_used` |
+| provider 不支持 STT | 听写入口禁用并说明原因 |
+| Linux 无 X11（Wayland） | `ScreenSource`/`TextInjector` 返回 `NoPermission`/`Unsupported`，UI 明示"需要 X11 会话" |
+| keyring 不可用 | 降级加密文件，并提示 `secret.fallback` |
+
+## A-19 配置生命周期
+
+| 配置 | 生效方式 |
+|---|---|
+| provider/model/key | 下一次请求 |
+| shortcuts | 重新注册热键（即时） |
+| budget | 即时 |
+| workspace | 需重启（并有迁移提示） |
+| tools.shell | 即时（影响下一次策略判定） |
+| privacy.* | 即时 |
+
+## A-20 兼容矩阵
+
+| 变化 | 旧数据/旧任务 | 策略 |
+|---|---|---|
+| 新增 DB 列 | 兼容 | 可空/默认值 |
+| 删除列 | 两版本 | 停写→下版删 |
+| `checkpoint` 结构变化 | 旧任务可能无法恢复 | `checkpoint.version`；不识别 → `Paused(incompatible)`，不猜 |
+| 注解语法 | 只增 | 旧标签永久可解析 |
+| 配置字段 | 只增 | 未知字段保留 |
+| 旧版本打开新 DB | 只读 | `user_version` 更高 → 只读 + 提示 |
+
+## A-21 可测试性接口
+
+| 需要 | 提供 |
+|---|---|
+| 制造中断 | `TaskRunner::step` 单步 + `Store` 可直接置 `heartbeat_at` |
+| 控制时间 | `Clock` 注入 |
+| 故障注入 | `ScriptedTransport` 可按序号返回错误/断流 |
+| 断言外部无副作用 | 假工具的 `calls: Arc<Mutex<Vec<Call>>>` |
+| 断言隐私 | `FakeScreen.calls` 计数 |
+| 定位失败 | 每个 `Error` 有 `code()`；每个流程写固定事件名 |
+
+---
+
+# 附录 B：设计评审自查（对照 SDD 的 10 条判断标准）
+
+| 检查问题 | 本文位置 | 结论 | 若不合格的补救 |
+|---|---|---|---|
+| 要求是否落到设计？ | §02 + 附录 A-02 不变量 | ✅ | — |
+| 模块能否独立实现并正确集成？ | §04.1 端口签名 + A-04 单元契约 + A-07 成功语义 | ✅ | — |
+| 数据是否有明确约束？ | §05 DDL + 数据字典 + A-12 epoch | ✅ | — |
+| 动态行为是否完整（含并发/取消/恢复）？ | §09、§10、§11、A-12 | ✅ | — |
+| 安全是否落到执行点？ | §15 + tech-prd §12 | ✅ | — |
+| 失败是否有明确去向？ | §13 错误表 + tech-prd §13 | ✅ | — |
+| 设计是否可被验证？ | §21 + A-21 | ✅ | — |
+| 升级是否保护现有工作？ | §20 + A-20 兼容矩阵 | ✅ | — |
+| 实现是否仍有合理自由？ | 只约束跨模块契约；私有函数与命名自由 | ✅ | — |
+| 文与当前设计一致（拟议/已实现/已验证不混）？ | §00 状态、v1.1 记录 | ✅ | — |
+
+## 已达成的具体修正（对照评审意见）
+
+| 意见 | 修正 |
+|---|---|
+| 单元描述只有"负责什么"，缺前置/后置/副作用 | 新增 A-04 五单元完整契约表 |
+| "成功"含义模糊 | 新增 A-07 逐接口成功语义与不承诺事项 |
+| 状态数量有了但写入者与 epoch 未定 | 新增 A-12 所有权/失联/旧执行者恢复 |
+| 算法只出现在伪码里，缺参数来源 | 新增 A-11 路由/收尾纠正/打扰预算/下次触发 |
+| 前端只有窗口清单 | 新增 A-14 加载/空/错误/重复提交/权限变化 |
+| 适配层可能"伪造能力" | 新增 A-16 不得伪造规则 |
+| 配置生效方式未定义 | 新增 A-19 即时 vs 重启 |
+| 兼容只写"迁移" | 新增 A-20 兼容矩阵（含旧任务/旧版本） |
+
+## 仍未解决（阻塞哪些工作）
+
+| 问题 | 阻塞 | 负责人 | 关闭条件 |
+|---|---|---|---|
+| `xcap` scale 与真实是否一致 | 指标准确性（P2 冒烟） | 平台层 | 校准模式实测 |
+| `rdev`/点击检测在 Wayland 不可用 | 带做（P4） | 平台层 | 检测 + 提示，或标"不支持" |
+| keyring 无 secret-service | 密钥安全等级 | 平台层 | 降级路径实测 |
