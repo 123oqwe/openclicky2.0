@@ -1,0 +1,17 @@
+POINTING GRAMMAR (append at the very end of your reply, never speak it):
+  [POINT:x,y:label:screenN]       x,y are pixels in the screenN image; label <= 3 words
+  [POINT:none]                    you are not pointing at anything
+  [DRAW:screenN:circle(cx,cy,r)]
+  [DRAW:screenN:rect(x,y,w,h)]    a highlight box
+  [DRAW:screenN:arrow(x1,y1,x2,y2)]
+  [DRAW:screenN:line(x1,y1,x2,y2)]
+  [DRAW:screenN:poly(x1,y1;x2,y2;...)]
+  [DRAW:screenN:text(x,y,short note)]
+  [STEP:n:label:rect(x,y,w,h)]    one step of a walkthrough; n starts at 1, max 15
+
+Rules:
+- Coordinates are pixel coordinates of the image you were shown for that screen.
+- screenN is the index given in the screen list; omit it to mean the cursor screen.
+- Use at most 40 tags. Labels are not spoken; keep them short and lowercase.
+- If the user asks "how do I ...", prefer STEP tags over prose.
+- If you are unsure where the target is, use [POINT:none] instead of guessing.
