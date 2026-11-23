@@ -173,7 +173,9 @@
 
 ### 13 性能、容量、稳定性与成本
 
-本地脚本（不进 CI 门槛）：`scripts/bench-capture.sh`、`scripts/bench_pipeline` 子命令；记录到 `06-acceptance.md`。断言仅"不超时"（模型假实现延迟 0）。
+**负载模型**（写清才能比较）：单用户、串行会话、4K×2 显示器、12s 语音、假 provider 固定延迟 300ms。
+本地脚本（不进 CI 门槛）：`scripts/bench-capture.sh`、`openclicky bench-pipeline`；结果（p50/p95、RSS、CPU）记录到 `06-acceptance.md`。
+**统计口径**：失败请求计入分母；去掉最慢 1% 后再算 p95 视为不同指标，必须标注。断言仅"不超时"（模型假实现延迟 0 的纯逻辑部分）。
 
 ### 14 体验、多端兼容
 

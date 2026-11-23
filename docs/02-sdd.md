@@ -608,7 +608,7 @@ CREATE TABLE dict_entries (
 
 ### 07 同步接口与调用契约
 
-见 §04 的 trait 签名。补充**调用约定**：
+见 §04 的 trait 签名。每个接口的**成功含义**（调用方可以依赖什么）、不承诺什么、失败分类与超时，统一列在附录 A-07；这里只补充**调用约定**：
 
 - `ScreenSource::capture_all` 必须由 `CaptureGate` 触发；未开 gate 调用 → 测试断言为 0 次。
 - `ChatProvider::complete_stream` 必须每收到一个 delta 立即回调；不得攒批。
@@ -748,20 +748,39 @@ impl Error { pub fn code(&self) -> &'static str; pub fn user_message(&self) -> S
 
 渲染：Canvas 2D；手绘风格 = 二次贝塞尔 + 每段随机扰动（seed = plan_id 哈希，保证重绘一致）。
 
-状态同步：前端只调命令 + 监听 `AppEvent`；不缓存权威状态。
+**本地状态（只此四项，其余全部回读权威源）**
+
+| 状态 | 存放 | 丢失后 |
+|---|---|---|
+| 滚动位置/最后页面 | `localStorage`（按会话 id） | 回到顶部，无业务影响 |
+| 输入草稿 | 内存 + `localStorage` | 丢失可接受（<1s 输入） |
+| 窗口尺寸 | 配置 | 用默认值 |
+| 已展开/收起的卡片 | 内存 | 默认收起 |
+
+**状态同步**：前端只调命令 + 监听 `AppEvent`；不缓存权威状态。界面状态不得被当作业务状态（例如按钮禁用不代表任务已完成）。
+
+**端侧差异**：三平台共用同一套窗口与状态逻辑，差异只在平台能力（§16 与 tech-prd §22.12 矩阵）；能力缺失时显示"此平台不支持"而不是静默失败。
+
+**空/加载/错误**：加载显示骨架（≤200ms 不显示）；空态给一句可执行的提示；错误必须带 `code` 与一句人话，不显示原始报错。
 
 ### 15 安全控制、授权执行与隐私设计
 
-见 tech-prd §12；实现点：
+见 tech-prd §12；逐条控制到代码与测试的映射（编号与 tech-prd 一致）：
 
-| 控制 | 代码位置 | 测试 |
-|---|---|---|
-| CaptureGate | `privacy.rs` | `capture_gate.rs` |
-| 脱敏 | `security::redact` | `redact.rs` |
-| 沙箱 | `tools::fs::resolve_in_workspace` | `tools_fs.rs` |
-| SSRF | `tools::net::guard_url` | `tools_net.rs` |
-| 注入守卫 | `dictation::guards` | `inject_guards.rs` |
-| 删除 | `store::delete_everything` + `deletion` | `deletion.rs` |
+| 控制 | 代码位置 | 执行点说明 | 测试 |
+|---|---|---|---|
+| SEC-1 CaptureGate | `privacy.rs` | 采集唯一入口，构造 `CaptureGuard` 才允许调用 `ScreenSource` | `capture_gate.rs` |
+| SEC-2 密钥 | `platform::secrets`、`SecretString` | 只在拼请求头时取值；`Debug` 打码 | `secrets.rs` |
+| SEC-3 脱敏 | `security::redact` | 每条日志写入前 | `redact.rs` |
+| SEC-4 风险策略 | `tools::policy` | 每次工具调用前，模型外判定 | `tools_policy.rs` |
+| SEC-5 沙箱 | `tools::fs::resolve_in_workspace` | 每次路径解析，含符号链接检查 | `tools_fs.rs` |
+| SEC-6 SSRF | `tools::net::guard_url` | 每次出站请求前 | `tools_net.rs` |
+| SEC-7 注入守卫 | `dictation::guards` | 注入前（终端/密码） | `inject_guards.rs` |
+| SEC-8 非可信内容 | `prompt::wrap_untrusted` | 拼提示词时 | `prompt.rs` |
+| SEC-9 审计 | `store.audit` | 每个特权工具调用后 | `tools_audit.rs` |
+| SEC-10 单实例 | `platform::singleton` | 启动时 | `app_singleton.rs` |
+| SEC-11 更新签名 | updater | 安装更新前 | `updater.rs` |
+| SEC-12 凭据最小化 | `providers` | 请求构造时 | `providers_*.rs` |
 
 ### 16 第三方系统、插件与复用组件
 
