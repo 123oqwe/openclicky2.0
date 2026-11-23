@@ -1,0 +1,6 @@
+# Single-maintainer project: every path has one owner.
+*                       @123oqwe
+/crates/core/           @123oqwe
+/crates/platform/       @123oqwe
+/docs/                  @123oqwe
+/.github/               @123oqwe
