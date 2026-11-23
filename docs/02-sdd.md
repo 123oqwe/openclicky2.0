@@ -98,7 +98,16 @@ pub struct DisplayShot {
 
 pub trait ScreenSource: Send + Sync {
     fn displays(&self) -> Result<Vec<DisplayInfo>>;
-    fn capture_all(&self) -> Result<Vec<DisplayShot>>;
+    /// The guard parameter is the enforcement: without a `CaptureGuard`
+    /// (constructible only by a user action) this method cannot be called.
+    fn capture_all(&self, guard: &crate::privacy::CaptureGuard<'_>) -> Result<Vec<DisplayShot>>;
+}
+
+/// Probe OS permissions. Called before every tool call (INV-D4).
+pub trait PermissionProbe: Send + Sync {
+    fn screen_recording(&self) -> bool;
+    fn accessibility(&self) -> bool;
+    fn microphone(&self) -> bool;
 }
 
 pub struct AudioClip { pub pcm: Vec<i16>, pub sample_rate: u32, pub channels: u16 }
@@ -393,7 +402,7 @@ impl UsageMeter {
 | 语音问答完成 | 1.0 |
 | 语音开始后 3 秒取消（无输出） | 0 |
 | 听写一次（含多次重转写） | 0.5 |
-| 任务启动 8 秒内 Stop | 0，且写 `usage.waived` |
+| 任务启动 10 秒内 Stop | 0，且写 `usage.waived` |
 | 任务运行 > 20 分钟 | 累计只计 1 次任务费（`AgentTask`） |
 | 权限询问/审批交互 | 0 |
 | 引导示例 | 0 |
@@ -547,7 +556,9 @@ CREATE INDEX idx_messages_session ON messages(session_id, created_at);
 CREATE TABLE tasks (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, goal TEXT NOT NULL, state TEXT NOT NULL,
   checkpoint_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-  heartbeat_at TEXT, units REAL NOT NULL DEFAULT 0, steps_done INTEGER NOT NULL DEFAULT 0,
+  heartbeat_at TEXT, epoch INTEGER NOT NULL DEFAULT 1, retries INTEGER NOT NULL DEFAULT 0,
+  units REAL NOT NULL DEFAULT 0, steps_done INTEGER NOT NULL DEFAULT 0,
+  prompt_version TEXT, tool_schema_version TEXT,
   parent_session_id TEXT, result TEXT, error_code TEXT
 );
 CREATE INDEX idx_tasks_state ON tasks(state, updated_at);
@@ -600,7 +611,7 @@ CREATE TABLE dict_entries (
 | 写入路径 | 事务边界 |
 |---|---|
 | `commit_turn` | messages + usage_events + tasks.state 同一事务 |
-| `record_step` | task_steps + tasks.checkpoint/heartbeat 同一事务 |
+| `record_step` | task_steps + tasks.checkpoint/heartbeat + tasks.epoch 校验，同一事务；`epoch` 不匹配则整笔回滚 |
 | 迁移 | 单事务（DDL + `user_version`） |
 | 删除 | 单事务删表 → 事务提交后再删文件（文件失败记 `DeletionReport`） |
 
@@ -610,7 +621,8 @@ CREATE TABLE dict_entries (
 
 见 §04 的 trait 签名。每个接口的**成功含义**（调用方可以依赖什么）、不承诺什么、失败分类与超时，统一列在附录 A-07；这里只补充**调用约定**：
 
-- `ScreenSource::capture_all` 必须由 `CaptureGate` 触发；未开 gate 调用 → 测试断言为 0 次。
+- `ScreenSource::capture_all(&guard)` 在签名层要求 `CaptureGuard`；没有 guard 的调用无法编译。审计计数只是旁证，不是保证。
+- 每次工具调用前必须调用 `PermissionProbe` 重新检查当前授权（INV-D4）；`PermissionProbe` 返回 false 时工具不得执行，任务进入 `WaitingApproval(permission)`。
 - `ChatProvider::complete_stream` 必须每收到一个 delta 立即回调；不得攒批。
 - `TextInjector::inject` 必须在 2s 内返回；超时视为 `PasteFailed`。
 - 所有 `Result` 使用 `error::Error`；跨界错误必须携带 `code()`（见 §13）。
@@ -691,9 +703,14 @@ hotkey_up → final transcribe → diff(末 20s) → 需要则改正 → cleanup
 | Running | finish 无证据 | CompletedUnverified | — |
 | Running | 步数>30 / 预算耗尽 / 20min 心跳超时 | Failed / Paused | — |
 | Running | 取消 | Canceled | — |
-| 任意非终态 | 应用退出 | Paused(interrupted) | 心跳 > 20min 时在启动时判定 |
+| WaitingApproval | 完成/无证据完成 | Completed / CompletedUnverified | 模型在等待期间被批准后直接 finish |
+| WaitingUser | 暂停/取消 | Paused / Canceled | 24h 无回答 → Paused |
+| Paused | 取消 | Canceled | — |
+| Failed | 取消 | Canceled | — |
+| 同状态 | 任意重复事件 | 不变 | 允许自转换（幂等） |
+| Running | 应用退出 | Paused(interrupted) | 心跳 > 20min 时在启动时判定；WaitingUser/WaitingApproval 保持原状态 |
 | Paused | retry | Running | 检查点存在 |
-| Failed | retry | Running | 重试次数 < 3 |
+| Failed | retry | Running | `retries < 3`；retry 时 `retries += 1` 且 `epoch += 1` |
 
 ### 12 并发、调度、取消与资源协调
 
@@ -737,6 +754,14 @@ impl Error { pub fn code(&self) -> &'static str; pub fn user_message(&self) -> S
 | `E_POLICY` | 这个操作需要你确认 | 否 |
 | `E_STATE` | 内部状态异常（已记录） | 否 |
 | `E_PROTOCOL` | 模型返回了无法解析的内容 | 否（降级纯文本） |
+| `E_MODEL` | 没有可用的模型 | 否 |
+| `E_NET` | 网络连不上 | 是（1 次） |
+| `E_SHORT` | 按住时间太短 | 否 |
+| `E_EMPTY_AUDIO` | 没听到声音 | 否 |
+| `E_BAD_REQ` | 请求参数不对 | 否 |
+| `E_STORE` | 本地存储出错 | 是（busy 3 次） |
+| `E_IO` | 文件读写失败 | 否 |
+| `E_INTERNAL` | 内部错误 | 否 |
 
 ## D. 客户端、安全与外部集成
 
@@ -767,17 +792,30 @@ impl Error { pub fn code(&self) -> &'static str; pub fn user_message(&self) -> S
 
 ### 15 安全控制、授权执行与隐私设计
 
+**删除传播（与 tech-prd §08.3 同序，缺一不可）**
+
+| 步骤 | 内容 | 失败时 |
+|---|---|---|
+| 1 | SQLite 全部表（单事务） | 报告失败并停止后续，避免"部分删除"被当成完成 |
+| 2 | 记忆文件（profile/projects） | 记录失败路径 |
+| 3 | 工作区与任务产物（进系统废纸篓） | 记录未能移入的路径 |
+| 4 | 词典与缓存（若有） | 记录 |
+| 5 | 钥匙串项（`provider/default` 等） | 记录；不回退已删部分 |
+| 6 | 日志目录 | 记录 |
+| 7 | 迁移备份 `app.db.bak` | 记录 |
+| 8 | 输出 `DeletionReport`：逐项成功/失败 + **明示**系统级备份不在范围 | — |
+
 见 tech-prd §12；逐条控制到代码与测试的映射（编号与 tech-prd 一致）：
 
 | 控制 | 代码位置 | 执行点说明 | 测试 |
 |---|---|---|---|
-| SEC-1 CaptureGate | `privacy.rs` | 采集唯一入口，构造 `CaptureGuard` 才允许调用 `ScreenSource` | `capture_gate.rs` |
+| SEC-1 CaptureGate | `privacy.rs` | **类型级**：`capture_all(&guard)` 需要 guard；guard 只由用户动作构造 | `capture_gate.rs` |
 | SEC-2 密钥 | `platform::secrets`、`SecretString` | 只在拼请求头时取值；`Debug` 打码 | `secrets.rs` |
 | SEC-3 脱敏 | `security::redact` | 每条日志写入前 | `redact.rs` |
-| SEC-4 风险策略 | `tools::policy` | 每次工具调用前，模型外判定 | `tools_policy.rs` |
+| SEC-4 风险策略 | `tools::policy` | 每次工具调用前，模型外判定。`Read=Allow`；`Write(区内)=Allow / 区外=Ask`；`External(fetch)=Allow（SSRF 守卫）/ 上传本机文件=Ask`；`Destructive=Ask` | `tools_policy.rs` |
 | SEC-5 沙箱 | `tools::fs::resolve_in_workspace` | 每次路径解析，含符号链接检查 | `tools_fs.rs` |
 | SEC-6 SSRF | `tools::net::guard_url` | 每次出站请求前 | `tools_net.rs` |
-| SEC-7 注入守卫 | `dictation::guards` | 注入前（终端/密码） | `inject_guards.rs` |
+| SEC-7 注入守卫 | `dictation::guards` | **每次**注入前（tick 与 finish 都要过），终端与密码两类 | `inject_guards.rs` |
 | SEC-8 非可信内容 | `prompt::wrap_untrusted` | 拼提示词时 | `prompt.rs` |
 | SEC-9 审计 | `store.audit` | 每个特权工具调用后 | `tools_audit.rs` |
 | SEC-10 单实例 | `platform::singleton` | 启动时 | `app_singleton.rs` |
@@ -914,6 +952,18 @@ interface_language = "zh"
 # 附录 A：v1.1 补全（评审清单逐项）
 
 ## A-02 设计层不变量（任何流程、并发、恢复下都必须成立）
+
+> 编号说明：tech-prd 的 `INV-1…INV-8` 是**权威编号**；本表的 `INV-D1…INV-D8` 是设计层复述，映射见下表，冲突以 tech-prd 为准。
+
+| tech-prd | 本 SDD | 主题 |
+|---|---|---|
+| INV-1 | INV-D1 | 不按键不采集 |
+| INV-6 | INV-D2 | 用量不重复计入 |
+| INV-7 | INV-D4 | 每次工具调用前重新授权 |
+| INV-8 | INV-D5 | 结果未知不重放 |
+| INV-2 | INV-D6 | 密钥不泄漏 |
+| INV-5 | INV-D7 | 写入不出工作区 |
+| INV-4 | INV-D8 | 删除无残留（本机范围） |
 
 | 编号 | 不变量 | 由谁保证 | 违反时的现象 |
 |---|---|---|---|

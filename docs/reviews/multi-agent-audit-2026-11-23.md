@@ -80,3 +80,22 @@ python3 scripts/doc-audit.py          # 条目实质检查
 python3 scripts/criteria-coverage.py  # 88 项编号覆盖
 jq '[.[] | select(.severity_final=="P0")] | length' docs/reviews/audit/findings-2026-11-23.json
 ```
+
+---
+
+## 修复状态（随 PR 更新）
+
+| P0 | 状态 | 处理 |
+|---|---|---|
+| 01 坐标换算缺降采样比 | ✅ 文档已修 | ADR-0006 §07 + tech-prd TR-12 改为 `px_picture × (display.width / shot.width_px)`，并要求解析必须拿到 shot 尺寸 |
+| 02 ADR-0003 标题与"预热"冲突 | ✅ 文档已修 | 守卫只能由用户动作构造；删除"预热一次"的表述依据 |
+| 03/08 截图保留三处不同值 | ✅ 文档已修 | 统一为**仅内存 ≤30 秒，不落盘**；删除 ADR-0008 的 `cache/` 行 |
+| 04 INV-5 vs TR-23 | ✅ 文档已修 | INV-5 改为"默认禁止、逐次批准后可写区外并审计"，与 TR-23 一致 |
+| 05 INV-4 vs 备份 | ✅ 文档已修 | INV-4 限定为本机数据目录与钥匙串，备份不在范围且必须明示 |
+| 06 SDD 缺删除传播 | ✅ 文档已修 | SDD §15 增加八步删除表 + 失败处理 |
+| 07 DDL 缺 epoch | ✅ 文档已修 | tasks 增加 `epoch/retries/prompt_version/tool_schema_version` |
+| 09 CaptureGate 非能力 | 🟡 规范已改，代码待改 | SDD/tech-prd 已改为 `capture_all(&CaptureGuard)`；实现见 F3 |
+| 10 无权限复检执行点 | 🟡 规范已改，代码待改 | 新增 `PermissionProbe` 端口 + "每次工具调用前"约定；实现见 F3 |
+| 11 Policy 对 Write/External 恒 Allow | 🟡 规范已改，代码待改 | SEC-4 表明确四类风险与区外/上传的差异；实现见 F3 |
+
+顺带修掉的 P1：8 秒→10 秒、错误码 11→20、状态表补 5 类转换、重试集合统一、词典权威改为表、指标归类为派生、INV 编号映射、ADR 计数 12→13、baseline 冲突规则与 ADR README 对齐、TDS 的 G3 门禁改为引用 tech-prd 九条、TDS 证据列新增"只能 spec-only"的规则。

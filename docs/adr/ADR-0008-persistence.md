@@ -52,11 +52,14 @@
 
 | 数据 | 载体 | 权威 |
 |---|---|---|
-| messages/sessions/tasks/task_steps/usage_events/audit_log/metrics_daily | `app.db`（`rusqlite`，bundled，WAL） | 是 |
+| messages/sessions/tasks/task_steps/usage_events/audit_log | `app.db`（`rusqlite`，bundled，WAL） | 是 |
+| metrics_daily | `app.db`（可重建的派生指标） | 否（派生） |
+| 词典 | `app.db` 的 `dict_entries` 表 | 是 |
+| 最近截图 | 仅内存 ≤30s | 否 |
 | 记忆 | `memory/profile.md`、`memory/projects.md` | 是 |
 | 配置 | `config.toml` | 是 |
 | 词典 | `dictation/dictionary.json` | 是 |
-| 缓存（最近截图） | `cache/`（24h TTL） | 否 |
+| 最近截图 | **不落盘**；仅内存保留 ≤30 秒用于重绘 | 否 |
 | 日志 | `logs/*.jsonl`（7 天） | 否 |
 
 迁移：`PRAGMA user_version`；迁移前复制 `app.db.bak`；失败进入只读并提示。

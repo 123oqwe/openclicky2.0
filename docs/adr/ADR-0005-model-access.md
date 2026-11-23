@@ -55,7 +55,7 @@
 - 传输：`HttpTransport` trait；生产 `UreqTransport`；测试 `ScriptedTransport`（按请求序号返回预置响应或错误）。
 - 流式：SSE 按行解析，`[DONE]` 结束；解析失败降级整段响应。
 - 错误分类：`Auth / RateLimit / RegionBlocked / Outage / Timeout / BadRequest / Protocol`，映射为用户可读中文文案。
-- 重试：仅 `RateLimit/Outage/Timeout` 且**流未产出内容**时；2 次，500ms/1500ms。
+- 重试：仅 `RateLimited/Outage/Timeout/Network` 且**流未产出内容**时；最多 2 次重试（共 3 次尝试），500ms/1500ms。与 tech-prd §13.2 同一集合。
 
 ## 08 理由与取舍
 
