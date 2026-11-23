@@ -313,8 +313,8 @@ PR 模板（`.github/PULL_REQUEST_TEMPLATE.md`）必含：
 
 | 规则 | 执行方式 |
 |---|---|
-| 不能直推 main | **当前靠本地 hook，GitHub 分支保护尚未启用**（需首个 CI 运行后配置 required checks） |
-| 必需检查不能缺 | `.github/workflows/ci.yml` 已存在；required checks 待启用 |
+| 不能直推 main | GitHub 分支保护**已启用**（required: `docs-and-invariants`、线性历史、禁强推、禁删除） |
+| 必需检查不能缺 | `.github/workflows/ci.yml` 已接入，`docs-and-invariants` 为必需检查 |
 | core 不得依赖 GUI/网络 | `scripts/check-invariants.sh`（已存在并接入 CI） |
 | 采集单入口 | 同上：`capture_all` 必须带 guard，脚本断言调用点 |
 | 风险判定 | 人工/评审（约定） |

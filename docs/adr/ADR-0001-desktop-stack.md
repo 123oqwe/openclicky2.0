@@ -57,7 +57,7 @@
 
 采用 **A**：
 
-- `crates/core`：纯 Rust，无 OS/网络/IO 依赖，全部业务规则与状态机，可 `cargo test` 离线跑。
+- `crates/core`：纯 Rust，**无 GUI / HTTP 客户端 / 子进程**依赖；允许 SQLite 文件读写（ADR-0008）与内存中的定时/解析逻辑，全部业务规则与状态机，可 `cargo test` 离线跑。
 - `crates/platform`：`cfg(target_os)` 分平台实现 ports。
 - `apps/desktop`：Tauri 2 薄壳，只做窗口、命令桥、线程调度。
 - `apps/desktop/ui`：TypeScript + Vite，无前端框架；渲染用 Canvas + DOM。

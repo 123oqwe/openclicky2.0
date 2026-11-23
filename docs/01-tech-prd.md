@@ -41,6 +41,7 @@
 |---|---|---|---|
 | 拟议 | 方案已写，未评审 | ADR `Draft/Proposed` | 任何人 |
 | 已批准 | 评审通过，可据以实现 | ADR `Accepted` + 本文条目状态列 | 技术负责人 |
+| 实现中（分支） | 代码已写但**未合入 main** | 分支名 + commit | 实施者 |
 | 已实现 | 代码合入 `main` | PR + commit | 实施者 |
 | 已验证 | 有绑定该 commit 的证据 | `06-acceptance.md` | 验收负责人 |
 
@@ -460,9 +461,9 @@ release → final transcribe → tail-correct(20s) → cleanup → dict-learning
 | 截图 | `xcap` | 平台直调（成本高） | 中 | 未验证（H-1） |
 | 输入 | `enigo` | CGEvent/SendInput 直调 | 中 | 未验证（H-2） |
 | 音频 | `cpal` | rodio（只播放） | 低 | 未验证（H-3） |
-| 存储 | `rusqlite` bundled | sled/JSON（无 SQL） | 低 | 已实现 |
-| HTTP | `ureq`+rustls | reqwest（异步重） | 低 | 已实现（假实现测过） |
-| 前端 | TS + Vite 无框架 | React（依赖多） | 低 | 已实现 |
+| 存储 | `rusqlite` bundled | sled/JSON（无 SQL） | 低 | 实现中（feat/impl） |
+| HTTP | `ureq`+rustls | reqwest（异步重） | 低 | 实现中（feat/impl，协议级假实现测过） |
+| 前端 | TS + Vite 无框架 | React（依赖多） | 低 | **未实现** |
 | 密钥 | `keyring` | 加密文件 | 低 | 未验证（H-5） |
 
 **依赖边界**：每个依赖的许可（MIT/Apache-2.0）、数据处理位置、失败方式、替代路线记录在 `THIRD_PARTY.md`（实现阶段生成）。
@@ -941,7 +942,7 @@ Wayland 下启动时必须检测并显示"需要 X11 会话（或改用剪贴板
 | 责任归属 | `router` |
 | 验证与证据 | TC-RTE-001（8 条表驱动）、metrics `router.tier` |
 | 关联 | SDD A-11.1 |
-| 状态与风险 | 已批准/已实现（纯函数）。风险：关键词表偏英文/中文 → 可配 |
+| 状态与风险 | 已批准/实现中（feat/impl，纯函数）。风险：关键词表偏英文/中文 → 可配 |
 
 ## TR-06 长回答不截断
 
@@ -969,7 +970,7 @@ Wayland 下启动时必须检测并显示"需要 X11 会话（或改用剪贴板
 | 责任归属 | `annotations` |
 | 验证与证据 | TC-ANNO-001…013（含负原点多屏、越界、坏标签、锚点） |
 | 关联 | SDD §04.2；TDS §02 |
-| 状态与风险 | 已批准/已实现（解析层）。风险：真实 scale 与 xcap 报告不一致 → 校准模式 |
+| 状态与风险 | 已批准/实现中（feat/impl，解析层）。风险：真实 scale 与 xcap 报告不一致 → 校准模式 |
 
 ## TR-14 带做（walkthrough）
 
@@ -1095,7 +1096,7 @@ Wayland 下启动时必须检测并显示"需要 X11 会话（或改用剪贴板
 | 责任归属 | `memory` |
 | 验证与证据 | TC-MEM-001…004 |
 | 关联 | SDD §04.7 |
-| 状态与风险 | 已批准/已实现（文件层） |
+| 状态与风险 | 已批准/实现中（feat/impl，文件层） |
 
 ## TR-27 用量语义
 
@@ -1109,7 +1110,7 @@ Wayland 下启动时必须检测并显示"需要 X11 会话（或改用剪贴板
 | 责任归属 | `usage` |
 | 验证与证据 | TC-USE-001…006、INV-6 |
 | 关联 | SDD §04.8 |
-| 状态与风险 | 已批准/已实现（规则层） |
+| 状态与风险 | 已批准/实现中（feat/impl，规则层） |
 
 ## TR-28 隐私、密钥与删除
 
@@ -1123,7 +1124,7 @@ Wayland 下启动时必须检测并显示"需要 X11 会话（或改用剪贴板
 | 责任归属 | `security`、`store` |
 | 验证与证据 | TC-SEC-002/006、TC-DEL-001 |
 | 关联 | SDD §15 |
-| 状态与风险 | 已批准/部分实现（脱敏已实现） |
+| 状态与风险 | 已批准/实现中（feat/impl；脱敏已实现，删除传播未实现） |
 
 ## TR-29 更新与单实例
 
