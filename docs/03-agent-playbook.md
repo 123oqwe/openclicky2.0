@@ -210,7 +210,8 @@ PR 模板（`.github/PULL_REQUEST_TEMPLATE.md`）必含：
 
 ## 12 CI、合并队列与合并权限
 
-`.github/workflows/ci.yml` 在各 PR 与 `merge_group` 上运行：
+`.github/workflows/ci.yml`（已落地）在各 PR、`main` 推送与 `merge_group` 上运行。
+`prepare` 作业在**没有 Cargo 工作区**的 ref 上显式输出 notice 并跳过代码检查——这是"未执行"，不是"通过"；工作区一旦出现，`rust-*` 自动启用。
 
 | 检查 | 命令 |
 |---|---|
@@ -312,10 +313,10 @@ PR 模板（`.github/PULL_REQUEST_TEMPLATE.md`）必含：
 
 | 规则 | 执行方式 |
 |---|---|
-| 不能直推 main | GitHub 分支保护（强制） |
-| 必需检查不能缺 | 必需 status checks（强制） |
-| core 不得依赖 GUI/网络 | `scripts/check-invariants.sh`（强制） |
-| 采集单入口 | 同上（grep 断言） |
+| 不能直推 main | **当前靠本地 hook，GitHub 分支保护尚未启用**（需首个 CI 运行后配置 required checks） |
+| 必需检查不能缺 | `.github/workflows/ci.yml` 已存在；required checks 待启用 |
+| core 不得依赖 GUI/网络 | `scripts/check-invariants.sh`（已存在并接入 CI） |
+| 采集单入口 | 同上：`capture_all` 必须带 guard，脚本断言调用点 |
 | 风险判定 | 人工/评审（约定） |
 | 验收结论绑定 commit | 人工 + 文档（约定） |
 

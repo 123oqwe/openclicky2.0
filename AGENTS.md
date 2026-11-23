@@ -1,45 +1,53 @@
 # AGENTS.md — OpenClicky 2.0
 
-Read this before any change. It is the operational summary of `docs/03-agent-playbook.md`.
+Read this before changing anything. Full version: `docs/03-agent-playbook.md`.
 
-## Order of authority
+## Where the truth lives
 
-1. Source product PRD (see `docs/00-baseline.md`) — product behaviour
-2. `docs/01-tech-prd.md` — technical commitments
-3. `docs/adr/` (latest Accepted) — decisions and their costs
-4. `docs/02-sdd.md` — module internals, fields, algorithms
-5. `docs/04-test-design.md` — test expectations
-6. Your own summary — **never** evidence
+1. Product behaviour: the source PRD (`docs/00-baseline.md` §1)
+2. Technical commitments: `docs/01-tech-prd.md`
+3. Decisions and their costs: `docs/adr/` (latest **Accepted**)
+4. Module internals: `docs/02-sdd.md`
+5. Test expectations: `docs/04-test-design.md`
+6. Your own summary: **never** evidence
 
-## Non-negotiables
+## Hard rules
 
-- No screen capture unless triggered by a user hotkey. `CaptureGate` is the only entry point (`crates/core/src/privacy.rs`).
-- `crates/core` must not depend on Tauri, GUI, `ureq`, or `std::process`. Enforced by `scripts/check-invariants.sh`.
-- Platform-specific code only in `crates/platform`.
-- API keys never in code, logs, config, tests, or commits. Logs go through `security::redact`.
-- No secrets in test fixtures. No network in tests. No `sleep` in tests — inject `Clock`.
-- Tests before implementation. Red → green → refactor.
-- Never delete or weaken a test to get green. If expectations changed, update `docs/04-test-design.md` first and say why.
+- No screen capture unless a user action opened the gate. `capture_all` takes `&CaptureGuard`; there is no other way to call it.
+- `crates/core` must not depend on Tauri, GUI, `ureq`, or `std::process`. Checked by `scripts/check-invariants.sh`.
+- Platform code only in `crates/platform`. Tools reach the OS only through ports.
+- API keys never in code, logs, config, tests or commits. All logging goes through `security::redact`.
+- No network in tests, no secrets in fixtures, no `sleep` — inject `Clock`.
+- Failing test first, then implementation. Never delete or weaken a test to get green.
+- Do not edit shared-write areas without coordination: `crates/core/src/ports.rs`, `crates/core/src/store/migrations.rs`, `docs/01-tech-prd.md`, `docs/02-sdd.md`, `Cargo.toml`, `.github/workflows/`.
 
-## Before you code
-
-1. Find the task in the current work item / issue; confirm scope and non-goals.
-2. Read the SDD sections for the modules you touch, plus any related ADR.
-3. Write the failing test(s) first.
-4. Check you are not editing a shared-write area without coordination: `ports.rs`, `store/migrations.rs`, `docs/01-tech-prd.md`, `docs/02-sdd.md`, `Cargo.toml`, `pnpm-lock.yaml`, `.github/workflows/`.
-
-## Before you claim done
+## Commands that actually exist
 
 ```bash
+# always
+bash scripts/check-invariants.sh          # structural invariants (docs + code when present)
+python3 scripts/doc-audit.py              # document substance check
+python3 scripts/criteria-coverage.py      # 88 numbered standard items
+
+# when a Cargo workspace is present (crates/ on your branch)
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-bash scripts/check-invariants.sh
-pnpm -C apps/desktop/ui typecheck && pnpm -C apps/desktop/ui test
 ```
 
-Then fill the PR template: what changed, what did **not** change, dependencies, test output, untested items, risk, rollback. "It works" is not evidence.
+There is no frontend yet. `pnpm` commands appear only after `apps/desktop/ui` exists; do not run or cite them before that.
+
+## Branch and PR rules
+
+- Branch from `main`: `feat/*`, `fix/*`, `docs/*`, `chore/*`. Never push to `main`.
+- A docs PR must contain only docs: verify with `gh pr view <n> --json files` before merging. (A docs PR once carried 37 code files; it was reverted.)
+- PR description: what changed, what did **not** change, dependencies, test output, untested items, risk, rollback.
+- "It works" is not evidence. Paste the commands and their output.
+
+## Before you claim done
+
+`check-invariants.sh` + `doc-audit` + `criteria-coverage` must pass; if code is present, fmt/clippy/test must pass. Then fill the PR template. If something is unverified, say so and record it in `docs/06-acceptance.md` §5.
 
 ## Commit style
 
-Conventional Commits: `feat|fix|docs|test|chore|refactor(scope): subject`.
+Conventional Commits: `feat|fix|docs|test|chore|refactor(revert is allowed)(scope): subject`.
