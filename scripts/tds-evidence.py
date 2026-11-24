@@ -51,7 +51,7 @@ ROWS = [
  ("TC-E2E-ASK-004", "消息与用量同事务落库", "TC-E2E-ASK-004", "已实现",
   "crates/core/tests/e2e_ask.rs::messages_and_usage_are_persisted_together", ""),
  ("TC-E2E-ASK-005", "打字提问不采集/不录音", "TC-E2E-ASK-005", "已实现",
-  "crates/core/tests/e2e_ask.rs::typed_question_skips_audio_and_capture", ""),
+  "crates/core/tests/e2e_ask.rs::typed_question_captures_once_and_can_point", ""),
  ("TC-E2E-ASK-006", "199ms 短按拒绝（不采集不计费）", "TC-E2E-ASK-006", "已实现",
   "crates/core/tests/e2e_ask.rs::short_press_is_rejected_and_not_charged", ""),
  ("TC-ANNO-001", "POINT 解析与剥离标签", "TC-ANNO-001…006", "已实现",

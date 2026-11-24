@@ -180,15 +180,13 @@ mod tests {
         assert!(resolve_in_workspace(dir.path(), "/etc/passwd").is_err());
     }
 
+    #[cfg(unix)]
     #[test]
     fn rejects_symlink_escape() {
         let dir = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();
         let link = dir.path().join("link");
-        #[cfg(unix)]
         std::os::unix::fs::symlink(outside.path(), &link).unwrap();
-        #[cfg(not(unix))]
-        return;
         assert!(resolve_in_workspace(dir.path(), "link/secret.txt").is_err());
     }
 

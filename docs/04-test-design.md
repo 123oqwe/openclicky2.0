@@ -53,7 +53,7 @@
 | TC-E2E-ASK-002 | TTS 失败回退剪贴板 | TC-E2E-ASK-002 | **已实现** | `crates/core/tests/e2e_ask.rs::silent_tts_falls_back_to_text_and_clipboard` | — |
 | TC-E2E-ASK-003 | 缺模型报 E_MODEL | TC-E2E-ASK-003 | **已实现** | `crates/core/tests/e2e_ask.rs::missing_model_is_a_clear_error` | — |
 | TC-E2E-ASK-004 | 消息与用量同事务落库 | TC-E2E-ASK-004 | **已实现** | `crates/core/tests/e2e_ask.rs::messages_and_usage_are_persisted_together` | — |
-| TC-E2E-ASK-005 | 打字提问不采集/不录音 | TC-E2E-ASK-005 | **已实现** | `crates/core/tests/e2e_ask.rs::typed_question_skips_audio_and_capture` | — |
+| TC-E2E-ASK-005 | 打字提问不采集/不录音 | TC-E2E-ASK-005 | **已实现** | `crates/core/tests/e2e_ask.rs::typed_question_captures_once_and_can_point` | — |
 | TC-E2E-ASK-006 | 199ms 短按拒绝（不采集不计费） | TC-E2E-ASK-006 | **已实现** | `crates/core/tests/e2e_ask.rs::short_press_is_rejected_and_not_charged` | — |
 | TC-ANNO-001 | POINT 解析与剥离标签 | TC-ANNO-001…006 | **已实现** | `crates/core/tests/e2e_ask.rs::asks_answers_points_and_charges_once` | 13 条细项见 spec-only |
 | TC-ANNO-002 | 越界裁剪/坏标签丢弃/多形状 | TC-ANNO-002 | **已实现** | `crates/core/src/annotations.rs::parses_every_draw_shape` | 另有 9 条同模块单测 |
