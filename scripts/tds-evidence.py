@@ -5,10 +5,22 @@ A row may only claim `已实现` when every cited `path::test_name` is found on 
 implementation branch. Anything else is `spec-only` or `部分`. This is the fix
 for the audit finding "the matrix cites seven test files that do not exist".
 """
-import subprocess, sys, pathlib, re
+import os, subprocess, sys, pathlib, re
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-BRANCH = "feat/impl"
+# Where the tests live. The docs branch does not carry code, so we read a branch.
+CANDIDATES = [os.environ.get("TDS_SOURCE_BRANCH", ""), "feat/impl", "origin/feat/impl", "HEAD"]
+
+
+def source_branch():
+    for c in CANDIDATES:
+        if not c:
+            continue
+        r = subprocess.run(["git", "rev-parse", "--verify", "--quiet", c],
+                           cwd=ROOT, capture_output=True, text=True)
+        if r.returncode == 0:
+            return c
+    return None
 
 # code, requirement, cases, status, evidence (path::test or "-"), note
 ROWS = [
@@ -156,21 +168,27 @@ ROWS = [
  ("TC-APP-002", "更新包验签", "TC-APP-002", "spec-only", "-", "桌面外壳落地后补"),
 ]
 
-def tests_on_branch():
+def tests_on_branch(branch):
     names = {}
-    out = subprocess.run(["git", "ls-tree", "-r", "--name-only", BRANCH, "crates/core"],
+    out = subprocess.run(["git", "ls-tree", "-r", "--name-only", branch, "crates/core"],
                          cwd=ROOT, capture_output=True, text=True).stdout.split()
     for path in out:
         if not path.endswith(".rs"):
             continue
-        body = subprocess.run(["git", "show", f"{BRANCH}:{path}"],
+        body = subprocess.run(["git", "show", f"{branch}:{path}"],
                               cwd=ROOT, capture_output=True, text=True).stdout
         for m in re.finditer(r'#\[test\]\s*(?:\n\s*)*fn\s+([a-z0-9_]+)', body):
             names.setdefault(path, set()).add(m.group(1))
     return names
 
 def main():
-    have = tests_on_branch()
+    branch = source_branch()
+    if branch is None:
+        print("tds-evidence: no source branch available (tried feat/impl, origin/feat/impl, HEAD)")
+        print("CI must fetch the implementation branch before running this check.")
+        return 2
+    have = tests_on_branch(branch)
+    print(f"tds-evidence: reading tests from {branch}")
     missing = []
     lines = []
     counts = {"已实现": 0, "部分": 0, "spec-only": 0}
