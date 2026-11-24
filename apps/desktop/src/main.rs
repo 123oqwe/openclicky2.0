@@ -432,11 +432,14 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("failed to build openclicky desktop")
         .run(|app, event| {
+            // Reopen only exists on macOS; other platforms use the dock/taskbar.
+            #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = event {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.show();
                     let _ = window.set_focus();
                 }
             }
+            let _ = (app, event);
         });
 }
