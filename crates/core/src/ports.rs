@@ -8,8 +8,8 @@ use chrono::{DateTime, Utc};
 use std::fmt;
 use std::time::Duration;
 
-use crate::annotations::PointerPlan;
 use crate::error::{Error, Result};
+use crate::geom::PointerPlan;
 
 pub type Secs = f64;
 

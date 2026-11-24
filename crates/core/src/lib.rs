@@ -11,6 +11,7 @@ pub mod config;
 pub mod deps;
 pub mod dictation;
 pub mod error;
+pub mod geom;
 pub mod hotkey;
 pub mod memory;
 pub mod ports;
