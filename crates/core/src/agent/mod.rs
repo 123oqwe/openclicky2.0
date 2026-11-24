@@ -182,6 +182,12 @@ mod tests {
         assert!(transition(TaskState::Running, TaskState::Completed).is_ok());
         assert!(transition(TaskState::Running, TaskState::WaitingApproval).is_ok());
         assert!(transition(TaskState::Paused, TaskState::Running).is_ok());
+        assert!(transition(TaskState::WaitingApproval, TaskState::Completed).is_ok());
+        assert!(transition(TaskState::WaitingUser, TaskState::Paused).is_ok());
+        assert!(transition(TaskState::WaitingUser, TaskState::Canceled).is_ok());
+        assert!(transition(TaskState::Paused, TaskState::Canceled).is_ok());
+        assert!(transition(TaskState::Failed, TaskState::Canceled).is_ok());
+        assert!(transition(TaskState::Running, TaskState::Running).is_ok());
         assert!(transition(TaskState::Completed, TaskState::Running).is_err());
         assert!(transition(TaskState::Canceled, TaskState::Running).is_err());
     }
