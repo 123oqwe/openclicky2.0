@@ -167,9 +167,15 @@ DESK
 
 ---
 
-## 7. 与 Tauri 桌面外壳的衔接（待落地）
+## 7. 桌面壳（已落地，安装器待补）
 
-外壳落地后，本文件需要追加（不是重写）：
+当前可用形态（源码运行）：
+```bash
+cargo run -p openclicky-desktop        # 启动壳（main 窗口 + overlay 覆盖层）
+# 按住 Ctrl+Alt+Space 说话，松开提问
+```
+
+仍需补齐（不改变已实现的行为）：
 - 三平台安装器构建命令（`cargo tauri build`）与产物路径；
 - 更新签名密钥（`TAURI_SIGNING_PRIVATE_KEY`）与公钥入库位置；
 - 更新检查失败/回滚的用户可见行为；
