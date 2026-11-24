@@ -3,7 +3,7 @@
 | 项 | 值 |
 |---|---|
 | 编号 | OC2-SDD |
-| 版本 | 1.2（2026-11-23，补回 D 章标题：客户端/安全/外部集成） |
+| 版本 | 1.3（2026-11-23，补齐 geom/Trail/删除/providers/桌面壳与命令面） |
 | 状态 | 已批准 |
 | 依据 | `01-tech-prd.md` v1.0、`adr/ADR-0001…0013` |
 | 适用 | `crates/core`、`crates/platform`、`apps/desktop`、`apps/cli`、前端 |
@@ -36,20 +36,33 @@
 **workspace 布局**
 
 ```
-Cargo.toml                      # workspace
-crates/core/                    # openclicky-core   纯逻辑，可离线测试
-  src/{lib,error,ports,clock,config,geometry,annotations,prompt,router,
-       voice,dictation,memory,usage,routines,suggest,walkthrough,privacy,
-       security,store/*,agent/*,tools/*}.rs
+Cargo.toml                      # workspace（4 个成员）
+crates/core/                    # openclicky-core：纯逻辑，可离线测试
+  src/{lib,error,ports,clock,config,geom,annotations,prompt,router,voice,
+       dictation,memory,usage,routines,suggest,walkthrough,privacy,security,
+       deletion,store/*,agent/*,tools/*,providers/*}.rs
   tests/                        # 集成测试（假实现驱动）
-crates/platform/                # openclicky-platform  OS 实现
-  src/{lib,capture,input,audio,speech,secrets,permissions,singleton,paths}.rs
-apps/cli/                       # openclicky-cli      doctor/ask/task/dictate/selftest
-apps/desktop/                   # openclicky-desktop  Tauri 壳
-  src/{main,commands,state,windows,tray}.rs
-  ui/                           # TypeScript + Vite
-.github/workflows/{ci,release}.yml
+crates/platform/                # openclicky-platform：OS 实现
+  src/{capture,input,audio,speech,tts,secrets,permissions,singleton,paths,
+       commands,http}.rs
+apps/cli/                       # openclicky-cli：doctor/ask/voice/task/dictate/
+                                #   selftest/set-key/usage/delete
+apps/desktop/                   # openclicky-desktop：Tauri 2 壳
+  src/main.rs                   # 窗口、全局热键、命令、光标采样
+  ui/dist/{index.html,overlay.html}  # 静态页面，无打包器
+  tauri.conf.json               # 两个窗口：main + overlay（透明穿透）
 ```
+
+**模块 → 文件（只列容易找错位置的）**
+
+| 概念 | 文件 |
+|---|---|
+| `Point/Rect/Trail/PointerPlan` | `core/src/geom.rs`（零依赖，避免 ports↔annotations 循环） |
+| 坐标换算（图片像素 ↔ 全局逻辑） | `core/src/annotations.rs`（`to_global`/`to_picture`/`picture_shrink`） |
+| 删除账号八步 | `core/src/deletion.rs` |
+| 供应商协议 | `core/src/providers/{openai,anthropic}.rs` |
+| 桌面命令与热键 | `apps/desktop/src/main.rs` |
+| 平台端口实现 | `crates/platform/src/*.rs` |
 
 **共用约定**
 
@@ -791,6 +804,21 @@ impl Error { pub fn code(&self) -> &'static str; pub fn user_message(&self) -> S
 **端侧差异**：三平台共用同一套窗口与状态逻辑，差异只在平台能力（§16 与 tech-prd §22.12 矩阵）；能力缺失时显示"此平台不支持"而不是静默失败。
 
 **空/加载/错误**：加载显示骨架（≤200ms 不显示）；空态给一句可执行的提示；错误必须带 `code` 与一句人话，不显示原始报错。
+
+**桌面壳命令面（`apps/desktop`，Tauri IPC）**
+
+| 命令 | 入参 | 返回 | 说明 |
+|---|---|---|---|
+| `app_state` | — | `{state, model, budget, config_path, data_dir}` | 首屏与刷新 |
+| `ask_text` | `{text}` | 回答文本 | 打字提问，不采集 |
+| `usage` | — | `{daily_used, daily_limit, percent, blocked}` | 用量环 |
+| `tasks` | — | `[{id,name,state,result}]` | 任务列表 |
+| `approve_task` / `deny_task` / `cancel_task` | `{id}` | — | 审批与取消 |
+| `cancel_voice` | — | — | 打断当前语音会话 |
+| `selftest` | — | 每屏尺寸/字节 | 抓屏自检 |
+
+事件（壳 → 前端）：`app-event`（状态/字幕/任务）、`answer`、`error`、`pointer-plan`、`pointer-clear`。
+热键：按住开始录音并 30Hz 采样光标，松开提交轨迹（见 ADR-0014）。
 
 ### 15 安全控制、授权执行与隐私设计
 

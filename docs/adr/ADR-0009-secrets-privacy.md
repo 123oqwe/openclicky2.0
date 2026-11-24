@@ -5,7 +5,7 @@
 | 01 标识 | ADR-0009 |
 | 状态 | **Accepted**（决策已接受，2026-11-23） |
 | 决策者 | 人类维护者（本项目唯一有权接受者） |
-| 实施状态 | 未实现（钥匙串与降级加密文件随 platform 层重建）（详见 `06-acceptance.md`） |
+| 实施状态 | 实现中（feat/impl：keychain + 回读校验 + AES-GCM 降级；Linux 恒降级） |
 | 负责人 | 技术负责人 |
 | 适用范围 | 密钥生命周期、日志、审计、删除、权限检查 |
 | 关联 | OC2-TECH-PRD §12、§17；SRC-PRD S1–S5；ADR-0002/0003/0007 |
@@ -50,6 +50,7 @@
 
 - **主路径 A**：`platform::secrets` 用 `keyring` 存取（service=`openclicky`，user=`provider/<id>`）。
 - **降级**：keyring 不可用 → 使用 `secrets.enc`（AES-256-GCM，密钥由机器绑定信息派生）+ 首次提示"当前系统无钥匙串，已使用本地加密文件"。
+- **写入必须回读校验**：`set` 成功后立即 `get` 一次，值不一致即视为不可用并走降级；`doctor` 按 `secrets.enc` 是否存在报告实际使用的存储。
 - `SecretString`：`Debug`/`Display` 打码；禁止 `serde::Serialize`。
 - 脱敏：`security::redact` 覆盖 `Authorization`、`x-api-key`、`sk-`、`Bearer`、32+ 位 hex/base64、`key=`。
 - 日志：默认不写用户文本（`debug_allow_text=false`）。

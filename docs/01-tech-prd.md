@@ -672,6 +672,8 @@ release → final transcribe → tail-correct(20s) → cleanup → dict-learning
 
 **未验证项必须显式列出**（例如"因无用户密钥，真实供应商在线路径未实测，仅以协议级假实现覆盖"）。
 
+当前状态见 `06-acceptance.md` §3：九条中 6 条满足，第 4（三平台安装冒烟）与第 8（迁移恢复演练）阻塞发布。
+
 ---
 
 # E. 工程约束
