@@ -228,17 +228,17 @@
 
 | 用例 | 断言 |
 |---|---|
-| TC-SEC-001 采集门禁 | 未开 gate → `FakeScreen.calls == 0` |
-| TC-SEC-002 脱敏 | 含 `sk-abc`、`Bearer x`、40 位 hex 的日志行 → 全部替换 |
+| TC-PRIV-001 采集门禁 | 未开 gate → `FakeScreen.calls == 0`（编号与矩阵一致） |
+| TC-SEC-001 脱敏 | 含 Bearer、api_key=、40 位 hex 的日志行 → 全部替换 |
 | TC-SEC-003 沙箱 | `../../etc/passwd`、绝对路径、符号链接逃逸 → `Denied` |
-| TC-SEC-004 SSRF | `http://127.0.0.1`、`http://169.254.1.1`、`file://` → `Denied` |
-| TC-SEC-005 注入守卫 | 终端目标 + 多行文本 → 只注入单行且无换行 |
-| TC-SEC-006 密钥不入库 | 设置 key 后扫描 DB 与日志 → 无明文 |
+| TC-SEC-004 SSRF | `127.0.0.1`、`127.1`、`2130706433`、`0x7f.0.0.1`、`169.254/16`、`100.64/10` → `Denied` |
+| TC-SEC-005 注入守卫 | 终端单行；密码类在 tick 与 finish 都不注入 |
+| TC-SEC-006 删除报告 | 八步逐项报告，失败必须出现 |
 
 ### 13 性能、容量、稳定性与成本
 
 **负载模型**（写清才能比较）：单用户、串行会话、4K×2 显示器、12s 语音、假 provider 固定延迟 300ms。
-本地脚本（不进 CI 门槛）：`scripts/bench-capture.sh`、`openclicky bench-pipeline`；结果（p50/p95、RSS、CPU）记录到 `06-acceptance.md`。
+本地脚本（不进 CI 门槛，**尚未实现**）：计划提供 `scripts/bench-capture.sh` 与 `openclicky bench` 子命令；实测前本节只定义口径，不声称有数据。
 **统计口径**：失败请求计入分母；去掉最慢 1% 后再算 p95 视为不同指标，必须标注。断言仅"不超时"（模型假实现延迟 0 的纯逻辑部分）。
 
 ### 14 体验、多端兼容
