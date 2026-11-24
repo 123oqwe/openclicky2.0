@@ -24,6 +24,16 @@ struct Ctx {
 fn script(responses: Vec<ChatResponse>) -> Ctx {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(Store::open_memory().unwrap());
+    script_with(store, dir, responses)
+}
+
+fn script_on_disk(responses: Vec<ChatResponse>) -> Ctx {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::open(&dir.path().join("app.db")).unwrap());
+    script_with(store, dir, responses)
+}
+
+fn script_with(store: Arc<Store>, dir: tempfile::TempDir, responses: Vec<ChatResponse>) -> Ctx {
     let chat = ScriptedChat::new(responses);
     // Deterministic time: the approval windows are minutes wide, so tests move
     // the clock instead of sleeping.
@@ -214,6 +224,34 @@ fn cancellation_is_terminal_and_keeps_the_checkpoint() {
 }
 
 #[test]
+fn a_key_in_tool_arguments_never_reaches_the_database() {
+    let key = "sk-live-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let c = script_on_disk(vec![
+        tool_call("fs_write", json!({"path":"k.txt","content": key})),
+        tool_call("finish", json!({"result":"wrote the key file"})),
+    ]);
+    let task = c.runner.create("把我的 key 存成一个文件").unwrap();
+    c.runner.step(&task.id).unwrap();
+    c.runner.step(&task.id).unwrap();
+
+    let path = c.store.path().unwrap().to_path_buf();
+    c.store.close().unwrap();
+    let bytes = std::fs::read(&path).unwrap();
+    assert!(
+        contains(&bytes, b"k.txt"),
+        "control: the step summary must be in the database"
+    );
+    assert!(
+        !contains(&bytes, key.as_bytes()),
+        "INV-2: the key reached the database file"
+    );
+
+    fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+        haystack.windows(needle.len()).any(|w| w == needle)
+    }
+}
+
+#[test]
 fn startup_recovery_pauses_stale_running_tasks() {
     let c = script(vec![tool_call(
         "fs_write",
@@ -227,11 +265,17 @@ fn startup_recovery_pauses_stale_running_tasks() {
     row.heartbeat_at = Some(chrono::Utc::now() - chrono::Duration::minutes(45));
     c.store.upsert_task(&row).unwrap();
 
+    let steps_before = c.store.steps(&task.id).unwrap().len();
     let recovered = c.runner.recover_interrupted(chrono::Utc::now()).unwrap();
     assert_eq!(recovered, 1);
     let t = c.runner.get(&task.id).unwrap();
     assert_eq!(t.state, TaskState::Paused);
     assert_eq!(t.error_code.as_deref(), Some("interrupted"));
+    assert_eq!(
+        c.store.steps(&task.id).unwrap().len(),
+        steps_before,
+        "INV-8: recovery must not replay the interrupted call"
+    );
 }
 
 #[test]

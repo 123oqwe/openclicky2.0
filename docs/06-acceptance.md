@@ -121,7 +121,7 @@
 
 ## 7. 2026-11-24 全栈审核修复批次
 
-依据 `docs/reviews/fullstack-audit-2026-11-24.md`。证据：`cargo test --workspace` 184 通过、`clippy -D warnings` 干净、`scripts/check-invariants.sh` 与四个文档脚本全绿。
+依据 `docs/reviews/fullstack-audit-2026-11-24.md`。证据：`cargo test --workspace` 185 通过、`clippy -D warnings` 干净、`scripts/check-invariants.sh` 与四个文档脚本全绿。
 
 | 修复 | 位置 | 绑定测试（文件 › 用例） |
 |---|---|---|
@@ -140,6 +140,8 @@
 | 删除报告不再吞掉失败的逐表结果 | `deletion.rs` | `deletion` › `a_table_that_refuses_to_empty_fails_step_one` |
 | 迁移 v3：`approvals`/`artifacts` 表、`pause_reason`、FTS5 与三个触发器 | `store/migrations.rs` M003、`store/mod.rs` | `store mod` › `migration_reaches_v3_and_adds_the_pause_reason`、`migrating_twice_is_a_no_op`、`full_text_search_finds_a_message_and_the_delete_trigger_clears_it`、`pause_reason_round_trips_and_clears` |
 | 批准落账，单次可用 | `agent/runner.rs` `note_approval` | `store mod` › `an_approval_is_decided_once_and_used_once`、`a_denied_approval_cannot_be_consumed`、`asking_twice_about_the_same_step_keeps_one_row`；`e2e_agent` › `approval_lets_the_action_run_once` |
+| INV-2：工具参数里的 key 不落 SQLite | `agent/runner.rs` 审计摘要 + 步骤摘要 | `e2e_agent` › `a_key_in_tool_arguments_never_reaches_the_database` |
+| INV-8：恢复不重放被中断的调用 | `recover_interrupted` | `e2e_agent` › `startup_recovery_pauses_stale_running_tasks` |
 | 产物归属可查（kind / bytes / sha256） | `agent/runner.rs` `finish`、`security::sha256_file` | `e2e_agent` › `writes_a_file_then_finishes_with_evidence`；`store mod` › `artifacts_survive_a_reopen_and_stay_scoped_to_their_task` |
 | 删掉没人用的截图保留期开关（口径统一为仅内存 30s） | `config.rs`、`02-sdd.md` §19 | 无自动化，配置形状由 `config` 往返用例覆盖 |
 | 前端零 innerHTML | `ui/dist/index.html` | 无自动化，一次性 DOM 断言 |
@@ -153,8 +155,8 @@
 
 | 项 | 卡在哪 |
 |---|---|
-| INV-2、INV-5、INV-6、INV-8 只有函数级测试 | 端到端用例要一次真实任务 + 真机权限；`e2e_agent` 只能脚本化模型 |
-| `ask_typed` 不截图、不画指（PRD C4 的一半） | 要把握屏端口接进打字通道，与热键通道共用权限与预算闸门 |
+| INV-5、INV-6 只有函数级测试 | 端到端用例要一次真实任务 + 真机权限；`e2e_agent` 只能脚本化模型 |
+| `ask_typed` 不支持“先画再问” | 截图与指画已经在打字通道里（`voice.rs` 走同一个 `CaptureReason::TypedQuestion` 闸门，`annotations::parse_reply` 出坐标）；缺的只是用户先圈一块再打字，那需要按住热键，属于热键通道 |
 | 应用自有命令未走 Tauri ACL | `withGlobalTauri: true` 是无打包步骤（ADR-0014）的前提；关掉它要先给 UI 加模块加载，属于 UI 工程改造 |
 | 多屏覆盖层（U9） | 需要每屏一个窗口，窗口管理要重写 |
 | 单修饰键长按（T2）、macOS 15.1 屏幕探测（T3） | 平台级重写，需真机验证 |
