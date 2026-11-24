@@ -41,11 +41,12 @@ fi
 note "== secrets: no key-shaped literals in the repo =="
 # A real key is >= 20 chars of printable non-space after a known prefix.
 if command -v rg >/dev/null 2>&1; then
-  hits=$(rg -n --hidden -g '!*.json' -g '!docs/**' -g '!.git/**' \
+  hits=$(rg -n --hidden -g '!*.json' -g '!docs/**' -g '!.git/**' -g '!target/**' -g '!node_modules/**' \
         '(sk-[A-Za-z0-9]{20,}|xox[bap]-[A-Za-z0-9-]{10,}|ghp_[A-Za-z0-9]{20,})' . || true)
 else
   hits=$(grep -rnE '(sk-[A-Za-z0-9]{20,}|xox[bap]-[A-Za-z0-9-]{10,}|ghp_[A-Za-z0-9]{20,})' \
-        --exclude-dir=.git --exclude-dir=docs --exclude='*.json' . || true)
+        --exclude-dir=.git --exclude-dir=docs --exclude-dir=target --exclude-dir=node_modules \
+        --exclude='*.json' . || true)
 fi
 [ -z "$hits" ] || bad "possible credential literal: $hits"
 
