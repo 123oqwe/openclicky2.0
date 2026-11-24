@@ -15,6 +15,7 @@
 | [ADR-0011](ADR-0011-distribution.md) | 三平台交付：CI 矩阵，默认未签名可用 | Accepted |
 | [ADR-0012](ADR-0012-testing.md) | 测试与验证：端口注入 + 假 provider，离线确定性 | Accepted |
 | [ADR-0013](ADR-0013-dictation-streaming.md) | 听写：增量重转写 + 最长公共前缀合并 | Accepted |
+| [ADR-0014](ADR-0014-desktop-shell.md) | 桌面壳用 Tauri 2；热键先用 Ctrl+Alt+Space | Accepted |
 
 生命周期：`Proposed → Accepted → (Superseded by ADR-xxxx | Deprecated)`。决策改变时**新增** ADR 并把旧的标为 Superseded，不改写历史。
 
