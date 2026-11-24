@@ -5,7 +5,7 @@
 | 01 标识 | ADR-0001 |
 | 状态 | **Accepted**（决策已接受，2026-11-23） |
 | 决策者 | 人类维护者（本项目唯一有权接受者） |
-| 实施状态 | 未实现（本 ADR 为设计基线；实现进度见关联 PR 与 `06-acceptance.md`） |
+| 实施状态 | 实现中（feat/impl：core 已存在；Tauri 壳与 UI 未实现）（详见 `06-acceptance.md`） |
 | 负责人 | 技术负责人 |
 | 适用范围 | 全仓库；`apps/desktop`、`crates/core`、`crates/platform` |
 | 关联 | OC2-TECH-PRD §11、§22.11；ADR-0003/0004/0005 |
