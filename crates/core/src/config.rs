@@ -64,6 +64,14 @@ pub enum ProviderKind {
 }
 
 impl ProviderKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ProviderKind::Openai => "openai",
+            ProviderKind::Anthropic => "anthropic",
+            ProviderKind::OpenaiCompatible => "openai_compatible",
+        }
+    }
+
     pub fn default_base_url(self) -> &'static str {
         match self {
             ProviderKind::Openai => "https://api.openai.com/v1",

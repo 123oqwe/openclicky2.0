@@ -219,7 +219,12 @@ impl UsageMeter {
 }
 
 pub fn unpaid_units(rows: &[UsageRow]) -> f64 {
-    rows.iter().filter(|r| !r.waived).map(|r| r.units).sum()
+    let total: f64 = rows.iter().filter(|r| !r.waived).map(|r| r.units).sum();
+    if total == 0.0 {
+        0.0
+    } else {
+        total
+    }
 }
 
 pub fn day_bounds(now: DateTime<Utc>) -> (DateTime<Utc>, DateTime<Utc>) {

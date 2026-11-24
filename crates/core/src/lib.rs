@@ -17,6 +17,7 @@ pub mod memory;
 pub mod ports;
 pub mod privacy;
 pub mod prompt;
+pub mod providers;
 pub mod router;
 pub mod routines;
 pub mod security;
