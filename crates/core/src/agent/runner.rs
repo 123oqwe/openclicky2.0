@@ -40,6 +40,13 @@ pub struct StepOutcome {
     pub message: String,
 }
 
+/// How many tasks may be queued/running/waiting at the same time.
+pub const MAX_ACTIVE_TASKS: usize = 3;
+
+/// A waiting task that has sat for this long is parked instead of holding the
+/// queue slot forever.
+const WAITING_TIMEOUT: Duration = Duration::hours(24);
+
 pub struct TaskRunner {
     deps: Arc<AgentDeps>,
 }
@@ -73,6 +80,18 @@ impl TaskRunner {
         Self { deps }
     }
 
+    fn active_task_count(&self) -> Result<usize> {
+        let rows = self.deps.store.list_tasks(None)?;
+        Ok(rows
+            .iter()
+            .filter(|r| {
+                TaskState::parse(&r.state)
+                    .map(|s| s.is_active())
+                    .unwrap_or(false)
+            })
+            .count())
+    }
+
     fn emit(&self, e: crate::AppEvent) {
         if let Some(f) = &self.deps.events {
             f(e);
@@ -83,6 +102,11 @@ impl TaskRunner {
         let goal = goal.trim();
         if goal.is_empty() {
             return Err(Error::BadRequest("任务目标不能为空".into()));
+        }
+        // At most MAX_ACTIVE tasks in flight. Without this the queue grows
+        // without bound and every one of them spends budget (INV-8).
+        if self.active_task_count()? >= MAX_ACTIVE_TASKS {
+            return Err(Error::QueueFull);
         }
         let now = self.deps.clock.now();
         let task = Task {
@@ -169,6 +193,21 @@ impl TaskRunner {
             usage: None,
             task_update: Some(update),
         })?;
+        // Record (or clear) the waiting marker in the same step as the state
+        // change, so the watchdog can expire tasks nobody answers.
+        let waiting = matches!(
+            task.state,
+            TaskState::WaitingApproval | TaskState::WaitingUser
+        );
+        if waiting {
+            // Best effort: a lost epoch means another runner owns the row now.
+            let _ = self
+                .deps
+                .store
+                .mark_waiting(&task.id, task.epoch, self.deps.clock.now());
+        } else {
+            self.deps.store.clear_waiting(&task.id)?;
+        }
         self.emit(crate::AppEvent::TaskUpdated {
             id: task.id.clone(),
             state: task.state,
@@ -308,7 +347,7 @@ impl TaskRunner {
     fn resume_pending(&self, task: &mut Task, pending: PendingCall) -> Result<StepOutcome> {
         let risk = self.deps.tools.risk_of(&pending.name, &pending.args);
         let now = self.deps.clock.now();
-        let approvals = self.approvals_from(task);
+        let approvals = self.approvals_from(task, &pending.name, &pending.args);
         let call = self.call_context(task, &pending.name, &pending.args, risk);
         let decision = Policy.decide(call, &approvals, now);
         match decision {
@@ -316,6 +355,9 @@ impl TaskRunner {
                 task.checkpoint.pending_call = None;
                 let name = pending.name.clone();
                 let approved_outside = call.outside_workspace;
+                // An approval is one-shot: drop the grant before running so a
+                // failure cannot leave the permission lying around.
+                consume_grant(task, &pending.name, &pending.args);
                 let ctx = self.tool_ctx_with(task, approved_outside);
                 let outcome = self.run_tool(task, &ctx, &pending)?;
                 self.after_tool(task, name, outcome)
@@ -370,10 +412,20 @@ impl TaskRunner {
         }
     }
 
-    fn approvals_from(&self, task: &Task) -> Approvals {
+    /// Approval state for exactly one call. A grant only unblocks the tool and
+    /// arguments it was given for; an expired `Not now` window is cleaned up
+    /// here so the checkpoint cannot grow stale denials forever.
+    fn approvals_from(&self, task: &mut Task, name: &str, args: &serde_json::Value) -> Approvals {
+        let now = self.deps.clock.now();
+        if let Some(until) = task.checkpoint.denied_until {
+            if now >= until {
+                task.checkpoint.denied_until = None;
+            }
+        }
+        let key = grant_key(name, args);
         Approvals {
-            conversation_granted: task.checkpoint.actions.iter().any(|x| x == "approved"),
-            denied_until: None,
+            conversation_granted: task.checkpoint.actions.iter().any(|x| x == &key),
+            denied_until: task.checkpoint.denied_until,
         }
     }
 
@@ -432,12 +484,20 @@ impl TaskRunner {
         }
 
         let now = self.deps.clock.now();
-        let approvals = self.approvals_from(task);
+        let approvals = self.approvals_from(task, &name, &args);
         let call = self.call_context(task, &name, &args, risk);
         let decision = Policy.decide(call, &approvals, now);
         match decision {
-            Approval::Allow => {}
+            Approval::Allow => {
+                // Consume the one-shot grant as soon as it is used.
+                consume_grant(task, &name, &args);
+            }
             Approval::Deny => {
+                // A denied attempt still consumed a turn: number it so the step
+                // log stays unique, and skip the call without running it.
+                task.steps_done += 1;
+                task.checkpoint.step = task.steps_done as u32;
+                let reason = "用户之前选择了不要再问（30 分钟内）";
                 self.deps.store.record_step(&StepRecord {
                     task_id: task.id.clone(),
                     step: task.steps_done,
@@ -449,13 +509,19 @@ impl TaskRunner {
                     code: Some("policy".into()),
                     created_at: now,
                 })?;
-                return self.after_tool(
-                    task,
-                    name.clone(),
-                    ToolOutcome::Denied {
-                        reason: "用户之前选择了不要再问（30 分钟内）".into(),
-                    },
-                );
+                task.checkpoint
+                    .facts
+                    .push(format!("{name} 被拒绝：{reason}"));
+                if task.checkpoint.facts.len() > 20 {
+                    let drain = task.checkpoint.facts.len() - 20;
+                    task.checkpoint.facts.drain(0..drain);
+                }
+                self.persist(task, TaskState::Running, None, None)?;
+                return Ok(StepOutcome {
+                    state: task.state,
+                    tool: Some(name),
+                    message: reason.to_string(),
+                });
             }
             Approval::Ask => {
                 task.checkpoint.pending_call = Some(PendingCall {
@@ -567,14 +633,11 @@ impl TaskRunner {
             code: code.clone(),
             created_at: now,
         })?;
+        let fenced = crate::prompt::wrap_tool_result(&name, &summary);
         if !ok {
-            task.checkpoint
-                .facts
-                .push(format!("{name} 失败：{summary}"));
+            task.checkpoint.facts.push(format!("{name} 失败：{fenced}"));
         } else {
-            task.checkpoint
-                .facts
-                .push(format!("{name} 成功：{summary}"));
+            task.checkpoint.facts.push(format!("{name} 成功：{fenced}"));
             if name == "fs_delete" || name == "shell" {
                 task.checkpoint.actions.push(name.clone());
             }
@@ -713,11 +776,17 @@ impl TaskRunner {
         s
     }
 
+    /// Approve exactly the call that is waiting. The grant is keyed by tool and
+    /// argument digest and removed once that call has run.
     pub fn approve(&self, task_id: &str) -> Result<()> {
         let mut task = self.get(task_id)?;
-        if !task.checkpoint.actions.iter().any(|x| x == "approved") {
-            task.checkpoint.actions.push("approved".into());
+        if let Some(pending) = task.checkpoint.pending_call.clone() {
+            let key = grant_key(&pending.name, &pending.args);
+            if !task.checkpoint.actions.iter().any(|x| x == &key) {
+                task.checkpoint.actions.push(key);
+            }
         }
+        task.checkpoint.denied_until = None;
         if task.state == TaskState::WaitingApproval {
             task.state = transitioned(TaskState::WaitingApproval, TaskState::Running);
         }
@@ -730,6 +799,7 @@ impl TaskRunner {
     pub fn deny(&self, task_id: &str) -> Result<()> {
         let mut task = self.get(task_id)?;
         task.checkpoint.pending_call = None;
+        task.checkpoint.denied_until = Some(self.deps.clock.now() + Duration::minutes(30));
         task.checkpoint
             .facts
             .push("用户选择了 Not now（30 分钟内不再询问）".into());
@@ -768,6 +838,30 @@ impl TaskRunner {
         task.updated_at = self.deps.clock.now();
         self.deps.store.upsert_task(&to_row(&task))?;
         Ok(task)
+    }
+
+    /// Watchdog: a task that has been waiting for a human for too long is
+    /// parked instead of holding a queue slot forever.
+    pub fn expire_stale_waiting(&self, now: DateTime<Utc>) -> Result<Vec<String>> {
+        let cutoff = now - WAITING_TIMEOUT;
+        let mut expired = Vec::new();
+        for row in self.deps.store.stale_waiting(cutoff)? {
+            let mut task = from_row(row);
+            task.epoch += 1;
+            task.state = TaskState::Paused;
+            task.error_code = Some("waiting_timeout".into());
+            task.result = Some("等太久了，任务已暂停。需要的话重新开始。".into());
+            task.updated_at = now;
+            self.deps.store.upsert_task(&to_row(&task))?;
+            self.deps.store.clear_waiting(&task.id)?;
+            self.emit(crate::AppEvent::TaskUpdated {
+                id: task.id.clone(),
+                state: task.state,
+                message: task.result.clone().unwrap_or_default(),
+            });
+            expired.push(task.id);
+        }
+        Ok(expired)
     }
 
     /// Startup recovery: any running task without a recent heartbeat is paused.
@@ -815,7 +909,7 @@ impl TaskRunner {
         let mut task = self.get(task_id)?;
         task.checkpoint.facts.push(format!(
             "用户回答：{}",
-            crate::security::log_safe(answer, 300)
+            crate::prompt::wrap_user_answer(&crate::security::log_safe(answer, 300))
         ));
         task.checkpoint.pending_question = None;
         task.state = transition(task.state, TaskState::Running)?;
@@ -823,6 +917,18 @@ impl TaskRunner {
         self.deps.store.upsert_task(&to_row(&task))?;
         Ok(())
     }
+}
+
+/// One-shot approval key: this tool with exactly these arguments.
+fn grant_key(name: &str, args: &serde_json::Value) -> String {
+    format!("grant:{name}:{}", crate::store::args_digest(args))
+}
+
+fn consume_grant(task: &mut Task, name: &str, args: &serde_json::Value) {
+    let key = grant_key(name, args);
+    task.checkpoint
+        .actions
+        .retain(|x| x != "approved" && x != &key);
 }
 
 fn transitioned(from: TaskState, to: TaskState) -> TaskState {
@@ -844,6 +950,11 @@ pub fn to_row(t: &Task) -> TaskRow {
         steps_done: t.steps_done,
         result: t.result.clone(),
         error_code: t.error_code.clone(),
+        owner: "local".into(),
+        retries: 0,
+        prompt_version: Some(crate::prompt::PROMPT_VERSION.to_string()),
+        tool_schema_version: Some("tools-1".to_string()),
+        waiting_since: None,
     }
 }
 

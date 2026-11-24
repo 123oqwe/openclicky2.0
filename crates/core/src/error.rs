@@ -51,6 +51,8 @@ pub enum Error {
     BadRequest(String),
     #[error("budget exhausted")]
     BudgetExhausted,
+    #[error("task queue is full")]
+    QueueFull,
     #[error("policy denied: {0}")]
     PolicyDenied(String),
 
@@ -82,6 +84,7 @@ impl Error {
             Error::EmptyAudio => "E_EMPTY_AUDIO",
             Error::BadRequest(_) => "E_BAD_REQ",
             Error::BudgetExhausted => "E_BUDGET",
+            Error::QueueFull => "E_QUEUE",
             Error::PolicyDenied(_) => "E_POLICY",
             Error::State(_) => "E_STATE",
             Error::Store(_) => "E_STORE",
@@ -113,6 +116,7 @@ impl Error {
             Error::BudgetExhausted => {
                 "今天的额度用完了。可以在设置里临时提额，或等明天恢复。".into()
             }
+            Error::QueueFull => "同时跑的任务太多了。等一件办完再交办下一件。".into(),
             Error::PolicyDenied(m) => format!("这个操作需要你确认：{m}"),
             Error::State(m) => format!("内部状态异常（{m}）。已经记录下来了。"),
             Error::Store(m) => format!("本地存储出错了：{m}"),

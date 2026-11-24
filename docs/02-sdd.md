@@ -575,9 +575,12 @@ CREATE TABLE tasks (
   heartbeat_at TEXT, epoch INTEGER NOT NULL DEFAULT 1, retries INTEGER NOT NULL DEFAULT 0,
   units REAL NOT NULL DEFAULT 0, steps_done INTEGER NOT NULL DEFAULT 0,
   prompt_version TEXT, tool_schema_version TEXT,
-  parent_session_id TEXT, result TEXT, error_code TEXT
+  parent_session_id TEXT, result TEXT, error_code TEXT,
+  waiting_since TEXT
 );
 CREATE INDEX idx_tasks_state ON tasks(state, updated_at);
+-- M002: one row per (task, step); a retry cannot duplicate a step record.
+CREATE UNIQUE INDEX idx_task_steps_unique ON task_steps(task_id, step);
 
 CREATE TABLE task_steps (
   id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -632,6 +635,19 @@ CREATE TABLE dict_entries (
 | 删除 | 单事务删表 → 事务提交后再删文件（文件失败记 `DeletionReport`） |
 
 无事件总线。断点续做依赖 `checkpoint_json`（权威）。
+
+### 06.1 2026-11-24 修复批次落地的约束
+
+| 约束 | 落地位置 | 说明 |
+|---|---|---|
+| 迁移到 v2 | `store/migrations.rs` M002 | 加 `owner/retries/prompt_version/tool_schema_version/waiting_since`，步骤唯一索引，`routines(next_run_at)` 与 `usage_events(task_id)` 索引 |
+| 审计只追加 | M002 触发器 `audit_log_no_update` | UPDATE 直接 `RAISE(ABORT)`；DELETE 只在删除流程里发生 |
+| 批准一次性 | `agent/runner.rs` `grant:<tool>:<digest>` | 执行完即删，同一调用第二次重新询问 |
+| 拒绝静默 30 分钟 | `Checkpoint.denied_until` | 持久化在 checkpoint 里，跨重启有效 |
+| 等待超时 | `persist()` 写 `waiting_since`，`expire_stale_waiting` | 24 小时后转 `Paused(waiting_timeout)` |
+| 任务并发上限 | `TaskRunner::create` | 活跃任务 ≥3 返回 `E_QUEUE` |
+| 预算覆盖全部出站 | `voice.rs`、`dictation.rs`、`agent/runner.rs` | 发请求前统一 `usage.can_start()` |
+| SSRF | `tools/net.rs` `guard_resolved` + `http` `redirects(0)` | 解析真实 IP；不跟随重定向 |
 
 ### 07 同步接口与调用契约
 
@@ -767,11 +783,12 @@ impl Error { pub fn code(&self) -> &'static str; pub fn user_message(&self) -> S
 | `E_TIMEOUT` | 超时了 | 是 |
 | `E_PERM` | 缺少「屏幕录制」权限 | 否 |
 | `E_BUDGET` | 今天/本月预算用完了 | 否 |
+| `E_QUEUE` | 同时跑的任务太多（上限 3） | 否 |
 | `E_POLICY` | 这个操作需要你确认 | 否 |
 | `E_STATE` | 内部状态异常（已记录） | 否 |
 | `E_PROTOCOL` | 模型返回了无法解析的内容 | 否（降级纯文本） |
 | `E_MODEL` | 没有可用的模型 | 否 |
-| `E_NET` | 网络连不上 | 是（1 次） |
+| `E_NET` | 网络连不上 | 是（最多 2 次） |
 | `E_SHORT` | 按住时间太短 | 否 |
 | `E_EMPTY_AUDIO` | 没听到声音 | 否 |
 | `E_BAD_REQ` | 请求参数不对 | 否 |

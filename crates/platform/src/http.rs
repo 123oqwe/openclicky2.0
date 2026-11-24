@@ -15,6 +15,10 @@ impl UreqTransport {
         Self {
             agent: ureq::AgentBuilder::new()
                 .timeout_connect(Duration::from_secs(10))
+                // A redirect could bounce a checked public URL to 127.0.0.1.
+                // Follow none; callers see the 3xx and decide.
+                .redirects(0)
+                .timeout_read(Duration::from_secs(30))
                 .build(),
         }
     }

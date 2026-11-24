@@ -30,6 +30,55 @@ const DEEP_KEYWORDS: &[&str] = &[
 const DEICTIC: &[&str] = &["这个", "这里", "这一步", "在哪", "this", "here"];
 const GREETING: &[&str] = &["hi", "hello", "hey", "你好", "嗨", "谢谢", "thanks"];
 
+/// Imperative openings: the user is asking for work, not for an explanation.
+const TASK_PREFIXES: &[&str] = &[
+    "帮我",
+    "替我",
+    "给我",
+    "帮我把",
+    "把",
+    "整理",
+    "清理",
+    "汇总",
+    "安排",
+    "生成",
+    "发一封",
+    "写一封",
+    "查一下",
+    "查查",
+    "列一个",
+    "做一份",
+    "做个",
+];
+
+/// Anything that turns a sentence into a question. A question is never a task,
+/// even when it opens with an imperative ("帮我看看这个为什么报错").
+const QUESTION_MARKERS: &[&str] = &["吗", "？", "?", "怎么", "为什么", "为何"];
+
+/// True when the utterance reads as a to-do: an imperative opening with no
+/// question anywhere in it. Used to decide whether the text goes to the task
+/// runner instead of the answer path.
+pub fn looks_like_task(text: &str) -> bool {
+    let t = text.trim();
+    if t.is_empty() {
+        return false;
+    }
+    if QUESTION_MARKERS.iter().any(|m| t.contains(m)) {
+        return false;
+    }
+    let lowered = t.to_lowercase();
+    if TASK_PREFIXES.iter().any(|p| lowered.starts_with(p)) {
+        return true;
+    }
+    // 「给…做/发/整理」 is an imperative about someone else's stuff.
+    if lowered.starts_with('给')
+        && (lowered.contains('做') || lowered.contains("整理") || lowered.contains("发"))
+    {
+        return true;
+    }
+    false
+}
+
 pub fn route(input: RouteInput<'_>) -> Tier {
     if input.is_task {
         return Tier::Deep;
@@ -92,5 +141,43 @@ mod tests {
     #[test]
     fn english_debug_keyword_is_deep() {
         assert_eq!(r("please debug this", true, false), Tier::Deep);
+    }
+
+    #[test]
+    fn imperative_about_a_file_is_a_task() {
+        assert!(looks_like_task("帮我把这两周的邮件整理成一个表格"));
+    }
+
+    #[test]
+    fn imperative_about_sending_is_a_task() {
+        assert!(looks_like_task("帮我发一封邮件给客户"));
+        assert!(looks_like_task("发一封道歉信给王工"));
+    }
+
+    #[test]
+    fn lookup_imperative_is_a_task() {
+        assert!(looks_like_task("查一下今天的汇率"));
+        assert!(looks_like_task("给我做一份周报"));
+        assert!(looks_like_task("给客户发一封报价单"));
+    }
+
+    #[test]
+    fn a_question_mark_makes_it_not_a_task() {
+        assert!(!looks_like_task("帮我把这个删掉，好吗？"));
+        assert!(!looks_like_task("帮我整理一下这个文件夹?"));
+    }
+
+    #[test]
+    fn why_questions_are_not_tasks() {
+        assert!(!looks_like_task("为什么这里会报错"));
+        assert!(!looks_like_task("帮我看看这里为什么报错"));
+        assert!(!looks_like_task("怎么整理这个文件夹"));
+    }
+
+    #[test]
+    fn plain_lookups_are_not_tasks() {
+        assert!(!looks_like_task("这个按钮是干什么的"));
+        assert!(!looks_like_task(""));
+        assert!(!looks_like_task("hi"));
     }
 }

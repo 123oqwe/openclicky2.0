@@ -48,6 +48,11 @@ pub struct TaskRow {
     pub steps_done: i64,
     pub result: Option<String>,
     pub error_code: Option<String>,
+    pub owner: String,
+    pub retries: i64,
+    pub prompt_version: Option<String>,
+    pub tool_schema_version: Option<String>,
+    pub waiting_since: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -299,18 +304,22 @@ impl Store {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "INSERT INTO tasks (id, name, goal, state, checkpoint_json, created_at, updated_at,
-                                heartbeat_at, epoch, units, steps_done, result, error_code)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)
+                                heartbeat_at, epoch, units, steps_done, result, error_code, owner, retries, prompt_version, tool_schema_version, waiting_since)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)
              ON CONFLICT(id) DO UPDATE SET
                 name=excluded.name, goal=excluded.goal, state=excluded.state,
                 checkpoint_json=excluded.checkpoint_json, updated_at=excluded.updated_at,
                 heartbeat_at=excluded.heartbeat_at, epoch=excluded.epoch, units=excluded.units,
-                steps_done=excluded.steps_done, result=excluded.result, error_code=excluded.error_code",
+                steps_done=excluded.steps_done, result=excluded.result, error_code=excluded.error_code,
+                retries=excluded.retries, prompt_version=excluded.prompt_version,
+                tool_schema_version=excluded.tool_schema_version,
+                waiting_since=excluded.waiting_since",
             params![
                 t.id, t.name, t.goal, t.state, t.checkpoint_json,
                 t.created_at.to_rfc3339(), t.updated_at.to_rfc3339(),
                 t.heartbeat_at.map(|h| h.to_rfc3339()), t.epoch, t.units, t.steps_done,
-                t.result, t.error_code
+                t.result, t.error_code, t.owner, t.retries, t.prompt_version,
+                t.tool_schema_version, t.waiting_since.map(|w| w.to_rfc3339())
             ],
         )
         .map_err(map_err)?;
@@ -321,7 +330,7 @@ impl Store {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
             "SELECT id, name, goal, state, checkpoint_json, created_at, updated_at, heartbeat_at,
-                    epoch, units, steps_done, result, error_code FROM tasks WHERE id=?1",
+                    epoch, units, steps_done, result, error_code, owner, retries, prompt_version, tool_schema_version, waiting_since FROM tasks WHERE id=?1",
             params![id],
             row_to_task,
         )
@@ -332,8 +341,8 @@ impl Store {
     pub fn list_tasks(&self, state: Option<&str>) -> Result<Vec<TaskRow>> {
         let conn = self.conn.lock().unwrap();
         let sql = match state {
-            Some(_) => "SELECT id, name, goal, state, checkpoint_json, created_at, updated_at, heartbeat_at, epoch, units, steps_done, result, error_code FROM tasks WHERE state=?1 ORDER BY updated_at DESC",
-            None => "SELECT id, name, goal, state, checkpoint_json, created_at, updated_at, heartbeat_at, epoch, units, steps_done, result, error_code FROM tasks ORDER BY updated_at DESC",
+            Some(_) => "SELECT id, name, goal, state, checkpoint_json, created_at, updated_at, heartbeat_at, epoch, units, steps_done, result, error_code, owner, retries, prompt_version, tool_schema_version, waiting_since FROM tasks WHERE state=?1 ORDER BY updated_at DESC",
+            None => "SELECT id, name, goal, state, checkpoint_json, created_at, updated_at, heartbeat_at, epoch, units, steps_done, result, error_code, owner, retries, prompt_version, tool_schema_version, waiting_since FROM tasks ORDER BY updated_at DESC",
         };
         let mut stmt = conn.prepare(sql).map_err(map_err)?;
         let mut out = Vec::new();
@@ -544,6 +553,55 @@ impl Store {
         Ok(report)
     }
 
+    /// Record when a task entered `waiting_approval`/`waiting_user` so the
+    /// watchdog can expire it instead of parking forever.
+    pub fn mark_waiting(&self, id: &str, epoch: i64, since: DateTime<Utc>) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let changed = conn
+            .execute(
+                "UPDATE tasks SET waiting_since=?3, updated_at=?3 WHERE id=?1 AND epoch=?2",
+                params![id, epoch, since.to_rfc3339()],
+            )
+            .map_err(map_err)?;
+        if changed == 0 {
+            return Err(Error::State("任务所有权已失效（epoch 过期）".into()));
+        }
+        Ok(())
+    }
+
+    /// Clear the waiting marker whenever the task leaves a waiting state.
+    pub fn clear_waiting(&self, id: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE tasks SET waiting_since=NULL WHERE id=?1",
+            params![id],
+        )
+        .map_err(map_err)?;
+        Ok(())
+    }
+
+    /// Tasks that have been waiting longer than the cutoff. Used by the
+    /// watchdog to move them to `Paused(waiting_timeout)`.
+    pub fn stale_waiting(&self, cutoff: DateTime<Utc>) -> Result<Vec<TaskRow>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, name, goal, state, checkpoint_json, created_at, updated_at, heartbeat_at,
+                        epoch, units, steps_done, result, error_code, owner, retries, prompt_version,
+                        tool_schema_version, waiting_since
+                 FROM tasks WHERE waiting_since IS NOT NULL AND waiting_since < ?1",
+            )
+            .map_err(map_err)?;
+        let rows = stmt
+            .query_map(params![cutoff.to_rfc3339()], row_to_task)
+            .map_err(map_err)?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(map_err)?);
+        }
+        Ok(out)
+    }
+
     pub fn checkpoint_wal(&self) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
@@ -585,6 +643,11 @@ fn row_to_task(r: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRow> {
         steps_done: r.get(10)?,
         result: r.get(11)?,
         error_code: r.get(12)?,
+        owner: r.get(13)?,
+        retries: r.get(14)?,
+        prompt_version: r.get(15)?,
+        tool_schema_version: r.get(16)?,
+        waiting_since: r.get::<_, Option<String>>(17)?.map(parse_time),
     })
 }
 
@@ -603,5 +666,125 @@ impl Store {
         )
         .map_err(map_err)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mem() -> Store {
+        Store::open_memory().unwrap()
+    }
+
+    fn task_row(id: &str) -> TaskRow {
+        let now = Utc::now();
+        TaskRow {
+            id: id.to_string(),
+            name: "n".into(),
+            goal: "g".into(),
+            state: "queued".into(),
+            checkpoint_json: "{}".into(),
+            created_at: now,
+            updated_at: now,
+            heartbeat_at: None,
+            epoch: 1,
+            units: 0.0,
+            steps_done: 0,
+            result: None,
+            error_code: None,
+            owner: "local".into(),
+            retries: 0,
+            prompt_version: None,
+            tool_schema_version: None,
+            waiting_since: None,
+        }
+    }
+
+    fn step(task: &str, n: i64) -> StepRecord {
+        StepRecord {
+            task_id: task.to_string(),
+            step: n,
+            kind: "tool".into(),
+            tool: Some("fs_read".into()),
+            request_json: None,
+            result_json: None,
+            ok: true,
+            code: None,
+            created_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn migration_adds_the_columns_the_decisions_promised() {
+        let s = mem();
+        assert_eq!(s.version().unwrap(), 2);
+        let conn = s.conn.lock().unwrap();
+        let mut stmt = conn.prepare("PRAGMA table_info(tasks)").unwrap();
+        let cols: Vec<String> = stmt
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        for c in [
+            "owner",
+            "retries",
+            "prompt_version",
+            "tool_schema_version",
+            "waiting_since",
+        ] {
+            assert!(cols.iter().any(|x| x == c), "{c} missing from tasks");
+        }
+    }
+
+    #[test]
+    fn duplicate_step_rows_are_rejected() {
+        let s = mem();
+        s.upsert_task(&task_row("t1")).unwrap();
+        s.record_step(&step("t1", 1)).unwrap();
+        assert!(s.record_step(&step("t1", 1)).is_err());
+        s.record_step(&step("t1", 2)).unwrap();
+    }
+
+    #[test]
+    fn audit_log_rejects_updates_but_deletion_flow_still_runs() {
+        let s = mem();
+        s.audit(&AuditRow {
+            task_id: None,
+            tool: "fs_read".into(),
+            risk: "read".into(),
+            args_digest: "abc".into(),
+            outcome: "ok".into(),
+            created_at: Utc::now(),
+        })
+        .unwrap();
+        {
+            let conn = s.conn.lock().unwrap();
+            let err = conn
+                .execute("UPDATE audit_log SET outcome='tampered'", [])
+                .unwrap_err();
+            assert!(err.to_string().contains("append-only"), "{err}");
+        }
+        assert!(s.delete_everything().unwrap().all_ok());
+    }
+
+    #[test]
+    fn waiting_marker_round_trips_and_expires() {
+        let s = mem();
+        s.upsert_task(&task_row("t1")).unwrap();
+        let now = Utc::now();
+        s.mark_waiting("t1", 1, now).unwrap();
+        assert_eq!(s.task("t1").unwrap().unwrap().waiting_since, Some(now));
+        assert!(s
+            .stale_waiting(now + chrono::Duration::hours(25))
+            .unwrap()
+            .iter()
+            .any(|t| t.id == "t1"));
+        assert!(s
+            .stale_waiting(now - chrono::Duration::minutes(1))
+            .unwrap()
+            .is_empty());
+        s.clear_waiting("t1").unwrap();
+        assert_eq!(s.task("t1").unwrap().unwrap().waiting_since, None);
     }
 }

@@ -4,7 +4,9 @@
 mod support;
 
 use openclicky_core::ports::{AudioSource, TargetInfo, TextInjector};
+use openclicky_core::store::UsageRow;
 use openclicky_core::voice::{State, VoiceEngine};
+use openclicky_core::AppEvent;
 use support::*;
 
 #[test]
@@ -226,4 +228,137 @@ fn no_gesture_leaves_the_prompt_clean() {
     engine.on_hotkey_up().unwrap();
     let req = h.chat.last_request().expect("a request was made");
     assert!(!req.system.contains("the user circled"));
+}
+
+// ---- budget and streaming contracts ----
+
+/// Burn the daily allowance so the meter reports `blocked`.
+fn exhaust_budget(h: &Harness) {
+    h.store
+        .insert_usage(&UsageRow {
+            kind: "voice".into(),
+            units: 1_000.0,
+            task_id: None,
+            session_id: None,
+            waived: false,
+            created_at: chrono::Utc::now(),
+            meta_json: None,
+        })
+        .unwrap();
+}
+
+#[test]
+fn exhausted_budget_blocks_a_typed_question_before_any_request() {
+    let h = harness(HarnessOpts::default());
+    let engine = VoiceEngine::new(h.deps.clone());
+    exhaust_budget(&h);
+
+    let err = engine.ask_typed("怎么打开设置").unwrap_err();
+    assert_eq!(err.code(), "E_BUDGET");
+    assert_eq!(engine.state(), State::Idle, "the state must not change");
+    assert!(
+        h.chat.last_request().is_none(),
+        "no request may leave the machine when the budget is gone"
+    );
+    let rows = h
+        .store
+        .usage_between(
+            chrono::Utc::now() - chrono::Duration::hours(1),
+            chrono::Utc::now() + chrono::Duration::hours(1),
+        )
+        .unwrap();
+    assert_eq!(rows.len(), 1, "the guard writes no usage of its own");
+}
+
+#[test]
+fn exhausted_budget_blocks_the_hotkey_path_too() {
+    let h = harness(HarnessOpts::default());
+    let engine = VoiceEngine::new(h.deps.clone());
+    exhaust_budget(&h);
+
+    engine.on_hotkey_down().unwrap();
+    let err = engine.on_hotkey_up().unwrap_err();
+    assert_eq!(err.code(), "E_BUDGET");
+    assert_eq!(h.screen.capture_count(), 0, "no capture without budget");
+    assert!(h.chat.last_request().is_none());
+    assert_eq!(engine.state(), State::Idle);
+}
+
+#[test]
+fn typed_answers_stream_deltas_then_the_answer() {
+    let h = harness(HarnessOpts {
+        chat: vec![ScriptedChat::text(
+            "用快捷键就能打开设置，按两下 Control 试试看。",
+        )],
+        ..Default::default()
+    });
+    let engine = VoiceEngine::new(h.deps.clone());
+    let outcome = engine.ask_typed("怎么打开设置").unwrap();
+    assert_eq!(
+        outcome.answer_text,
+        "用快捷键就能打开设置，按两下 Control 试试看。"
+    );
+
+    let events = h.events.lock().unwrap();
+    let deltas = events
+        .iter()
+        .filter(|e| matches!(e, AppEvent::Delta { .. }))
+        .count();
+    assert!(deltas >= 2, "expected a stream, got {deltas} delta events");
+    let last_delta = events
+        .iter()
+        .rposition(|e| matches!(e, AppEvent::Delta { .. }))
+        .unwrap();
+    let answer = events
+        .iter()
+        .position(|e| matches!(e, AppEvent::Answer { .. }))
+        .expect("an answer event closes the stream");
+    assert!(answer > last_delta, "the answer comes after the deltas");
+}
+
+#[test]
+fn cancelling_a_typed_answer_stops_the_stream_and_charges_nothing() {
+    let h = harness(HarnessOpts {
+        chat: vec![ScriptedChat::text(
+            "第一段内容在这里，第二段内容在后面，第三段也要被丢掉。",
+        )],
+        ..Default::default()
+    });
+    let engine = VoiceEngine::new(h.deps.clone());
+
+    // The fake chat calls this hook after every delta. The first one cancels the
+    // request, exactly like a second key press would.
+    let cancel_flag = engine.cancel_token();
+    let armed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let armed_in_hook = armed.clone();
+    *h.chat.on_delta.lock().unwrap() = Some(std::sync::Arc::new(move |_d: &str| {
+        if armed_in_hook.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            cancel_flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }));
+
+    let err = engine.ask_typed("怎么打开设置").unwrap_err();
+    assert_eq!(err.code(), "E_STATE");
+    assert_eq!(engine.state(), State::Idle, "cancel returns to idle");
+
+    let events = h.events.lock().unwrap();
+    let deltas = events
+        .iter()
+        .filter(|e| matches!(e, AppEvent::Delta { .. }))
+        .count();
+    assert_eq!(deltas, 1, "nothing is emitted after the cancel");
+    assert!(
+        !events.iter().any(|e| matches!(e, AppEvent::Answer { .. })),
+        "a canceled answer never gets an answer event"
+    );
+    drop(events);
+
+    let rows = h
+        .store
+        .usage_between(
+            chrono::Utc::now() - chrono::Duration::hours(1),
+            chrono::Utc::now() + chrono::Duration::hours(1),
+        )
+        .unwrap();
+    assert!(rows.is_empty(), "a canceled answer costs nothing");
 }

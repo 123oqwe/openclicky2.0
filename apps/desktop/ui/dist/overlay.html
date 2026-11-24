@@ -14,6 +14,15 @@
       box-shadow:0 2px 10px rgba(0,0,0,.35);
     }
     #rec.on { display:flex; }
+    #cap {
+      position:fixed; left:50%; bottom:56px; transform:translateX(-50%);
+      max-width:min(720px, 88vw); display:none;
+      padding:10px 16px; border-radius:12px;
+      background:rgba(20,20,20,.86); color:#eee; text-align:center;
+      font:500 15px/1.5 -apple-system, system-ui, sans-serif;
+      box-shadow:0 2px 14px rgba(0,0,0,.4);
+    }
+    #cap.on { display:block; }
     #dot {
       width:10px; height:10px; border-radius:50%; background:#ef4444;
       animation:pulse 1s ease-in-out infinite;
@@ -23,6 +32,7 @@
 </head>
 <body>
   <div id="rec"><span id="dot"></span><span>正在听…</span></div>
+  <div id="cap"></div>
   <canvas id="c"></canvas>
   <script type="module">
     const T = window.__TAURI__;
@@ -67,8 +77,26 @@
       stroke();
     }
 
+    let caption = '';
+    function setCaption(text) {
+      const box = document.getElementById('cap');
+      caption = text;
+      box.textContent = text;
+      box.className = text ? 'on' : '';
+    }
+
     await listen('recording', (e) => {
       document.getElementById('rec').className = e.payload ? 'on' : '';
+      if (e.payload) setCaption('');
+    });
+    // Subtitle is the caption bar for an answer spoken over the screen; Dictation
+    // previews what is being transcribed. Both land here, not in the main window.
+    await listen('app-event', (e) => {
+      const p = e.payload || {};
+      const d = p.data;
+      if (p.kind === 'Subtitle' && d && d.text) setCaption(caption + d.text);
+      if (p.kind === 'Dictation' && d) setCaption(d.text || '');
+      if (p.kind === 'Answer') setCaption('');
     });
     await listen('pointer-plan', (e) => draw(e.payload));
     await listen('pointer-clear', () => ctx.clearRect(0, 0, innerWidth, innerHeight));

@@ -96,15 +96,30 @@ impl VoiceEngine {
         if *state == State::Listening {
             return Ok(());
         }
+        // Pressing the key while an answer is in flight interrupts it. The flag
+        // stays set until the next request starts (`begin_request`), so the
+        // in-flight stream actually observes the interruption instead of the
+        // reset wiping it out in the same breath.
         if matches!(*state, State::Speaking | State::Thinking) {
             self.cancel.store(true, Ordering::SeqCst);
         }
-        self.cancel.store(false, Ordering::SeqCst);
         self.deps.audio.start()?;
         *state = State::Listening;
         drop(state);
         self.deps.emit(AppEvent::State(State::Listening));
         Ok(())
+    }
+
+    /// Reset the cancel flag for a brand new request. Safe because an interrupted
+    /// previous stream had the whole key-hold to notice its own cancellation.
+    fn begin_request(&self) {
+        self.cancel.store(false, Ordering::SeqCst);
+    }
+
+    /// The raw cancel flag, for callers and tests that need to interrupt a
+    /// request from outside the engine.
+    pub fn cancel_token(&self) -> Arc<AtomicBool> {
+        self.cancel.clone()
     }
 
     /// Finish a session without a gesture.
@@ -122,6 +137,14 @@ impl VoiceEngine {
             return Err(Error::TooShort);
         }
         self.set_state(State::Thinking);
+        // Budget is checked before anything expensive: no capture, no STT, no
+        // request when the day is spent (ADR-0010).
+        let now = self.deps.clock.now();
+        if !self.deps.usage.can_start(now)? {
+            self.set_state(State::Idle);
+            return Err(Error::BudgetExhausted);
+        }
+        self.begin_request();
 
         let config = self.deps.config_snapshot();
         let session_id = self.deps.store.insert_session("ask", Utc::now())?;
@@ -283,6 +306,10 @@ impl VoiceEngine {
             let deps = self.deps.clone();
             let cancel = self.cancel.clone();
             self.deps.chat.complete_stream(&request, &mut |delta| {
+                // A second key press stops the stream where it is.
+                if cancel.load(Ordering::SeqCst) {
+                    return;
+                }
                 if first_delta_at.is_none() {
                     first_delta_at = Some(deps.clock.monotonic_ms());
                 }
@@ -295,7 +322,6 @@ impl VoiceEngine {
                 deps.emit(AppEvent::Delta {
                     text: delta.to_string(),
                 });
-                let _ = &cancel;
             })?
         };
 
@@ -450,6 +476,11 @@ impl VoiceEngine {
         if text.trim().is_empty() {
             return Err(Error::BadRequest("问题为空".into()));
         }
+        // Budget first: a blocked engine must not change state or write usage.
+        let budget_now = self.deps.clock.now();
+        if !self.deps.usage.can_start(budget_now)? {
+            return Err(Error::BudgetExhausted);
+        }
         let started = self.deps.clock.monotonic_ms();
         self.set_state(State::Thinking);
         let config = self.deps.config_snapshot();
@@ -489,7 +520,39 @@ impl VoiceEngine {
             max_tokens: config.voice.max_answer_tokens,
             temperature: 0.3,
         };
-        let response = self.deps.chat.complete(&request)?;
+        self.begin_request();
+        let cancel = self.cancel.clone();
+        let mut first_delta_at: Option<u64> = None;
+        let stream_started = self.deps.clock.monotonic_ms();
+        let mut cancelled = false;
+        let response = {
+            let deps = self.deps.clone();
+            let cancel = cancel.clone();
+            self.deps.chat.complete_stream(&request, &mut |delta| {
+                if cancel.load(Ordering::SeqCst) {
+                    cancelled = true;
+                    return;
+                }
+                if first_delta_at.is_none() {
+                    first_delta_at = Some(deps.clock.monotonic_ms());
+                }
+                if config.voice.captions {
+                    deps.emit(AppEvent::Subtitle {
+                        text: delta.to_string(),
+                    });
+                }
+                deps.emit(AppEvent::Delta {
+                    text: delta.to_string(),
+                });
+            })?
+        };
+
+        if cancelled || self.cancel.load(Ordering::SeqCst) {
+            // Canceled mid-stream: no Answer event, no usage row, back to Idle.
+            self.set_state(State::Idle);
+            self.deps.overlay.clear().ok();
+            return Err(Error::State("已取消".into()));
+        }
         let parsed = annotations::parse_reply(&response.text, &[], 0);
         self.set_state(State::Speaking);
         self.deps.emit(AppEvent::Answer {
@@ -546,6 +609,7 @@ impl VoiceEngine {
             model,
             charged_units: units,
             timings: Timings {
+                first_delta_ms: first_delta_at.map(|t| t - stream_started).unwrap_or(0),
                 total_ms: self.deps.clock.monotonic_ms().saturating_sub(started),
                 ..Default::default()
             },

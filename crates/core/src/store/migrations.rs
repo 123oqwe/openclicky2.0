@@ -4,7 +4,7 @@
 //! transaction and the whole batch is preceded by a file backup (see
 //! `Store::open`).
 
-pub const LATEST: i32 = 1;
+pub const LATEST: i32 = 2;
 
 pub const M001: &str = r#"
 CREATE TABLE IF NOT EXISTS sessions (
@@ -103,9 +103,33 @@ CREATE TABLE IF NOT EXISTS dict_entries (
 );
 "#;
 
+/// M002: the columns the accepted decisions already promised, plus the
+/// constraints that make the append-only and uniqueness claims true.
+pub const M002: &str = r#"
+ALTER TABLE tasks ADD COLUMN owner TEXT NOT NULL DEFAULT 'local';
+ALTER TABLE tasks ADD COLUMN retries INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE tasks ADD COLUMN prompt_version TEXT;
+ALTER TABLE tasks ADD COLUMN tool_schema_version TEXT;
+ALTER TABLE tasks ADD COLUMN waiting_since TEXT;
+
+DELETE FROM task_steps
+ WHERE id NOT IN (SELECT MIN(id) FROM task_steps GROUP BY task_id, step);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_task_steps_unique ON task_steps(task_id, step);
+
+CREATE INDEX IF NOT EXISTS idx_routines_next ON routines(next_run_at);
+CREATE INDEX IF NOT EXISTS idx_usage_task ON usage_events(task_id);
+
+CREATE TRIGGER IF NOT EXISTS audit_log_no_update
+BEFORE UPDATE ON audit_log
+BEGIN
+  SELECT RAISE(ABORT, 'audit_log is append-only');
+END;
+"#;
+
 pub fn script(version: i32) -> Option<&'static str> {
     match version {
         1 => Some(M001),
+        2 => Some(M002),
         _ => None,
     }
 }

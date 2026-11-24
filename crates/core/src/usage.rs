@@ -122,8 +122,10 @@ impl UsageMeter {
         match input.kind {
             // H3: stopped within 10s costs nothing; a long task keeps one charge.
             UsageKind::AgentTask => (0..10_000).contains(&elapsed_ms) || input.task_already_charged,
-            // H10 / SDD §4.8: beyond 20 minutes further turns are free.
-            UsageKind::AgentStep => input.task_already_charged && elapsed_ms > 20 * 60 * 1000,
+            // Every step is metered. A long task still charges once for the
+            // task itself; waivering every step past 20 minutes removed the
+            // only ceiling on a runaway task.
+            UsageKind::AgentStep => false,
             _ => false,
         }
     }
@@ -308,7 +310,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_steps_after_twenty_minutes_are_waived() {
+    fn agent_steps_are_always_metered_even_after_twenty_minutes() {
         let (_s, clock, m) = meter();
         let started = clock.now();
         clock.advance_minutes(21);
@@ -320,7 +322,7 @@ mod tests {
             now: clock.now(),
             task_already_charged: true,
         };
-        assert_eq!(m.meter(&input).unwrap(), 0.0);
+        assert!(m.meter(&input).unwrap() > 0.0);
     }
 
     #[test]

@@ -118,6 +118,12 @@ impl Tool for FetchUrl {
     fn risk(&self, _a: &Value) -> Risk {
         Risk::External
     }
+    fn uploads_local_file(&self, a: &Value) -> bool {
+        a.get("url")
+            .and_then(|v| v.as_str())
+            .map(net::url_carries_payload)
+            .unwrap_or(false)
+    }
     fn spec(&self) -> ToolSpec {
         spec(
             "fetch_url",
@@ -128,7 +134,7 @@ impl Tool for FetchUrl {
     }
     fn run(&self, ctx: &ToolCtx, args: &Value) -> Result<ToolOutcome> {
         let url = str_arg(args, "url")?;
-        let url = net::guard_url(url, ctx.allow_private_network)?;
+        let url = net::guard_resolved(url, ctx.allow_private_network)?;
         let resp = ctx.http.get(
             &url,
             &[("User-Agent".into(), "openclicky/2".into())],
@@ -156,6 +162,12 @@ impl Tool for HttpGetJson {
     fn risk(&self, _a: &Value) -> Risk {
         Risk::External
     }
+    fn uploads_local_file(&self, a: &Value) -> bool {
+        a.get("url")
+            .and_then(|v| v.as_str())
+            .map(net::url_carries_payload)
+            .unwrap_or(false)
+    }
     fn spec(&self) -> ToolSpec {
         spec(
             "http_get_json",
@@ -165,7 +177,7 @@ impl Tool for HttpGetJson {
         )
     }
     fn run(&self, ctx: &ToolCtx, args: &Value) -> Result<ToolOutcome> {
-        let url = net::guard_url(str_arg(args, "url")?, ctx.allow_private_network)?;
+        let url = net::guard_resolved(str_arg(args, "url")?, ctx.allow_private_network)?;
         let resp = ctx
             .http
             .get(&url, &[], std::time::Duration::from_secs(20))?;

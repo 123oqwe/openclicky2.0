@@ -189,11 +189,57 @@ impl Transcriber for FakeTranscriber {
     }
 }
 
+// ---------------------------------------------------------------- clock
+
+/// Deterministic clock. `now` only moves when a test moves it.
+pub struct FakeClock {
+    now: Mutex<chrono::DateTime<chrono::Utc>>,
+    mono: Mutex<u64>,
+}
+
+impl FakeClock {
+    pub fn new() -> Arc<Self> {
+        Self::at(chrono::Utc::now())
+    }
+    pub fn at(now: chrono::DateTime<chrono::Utc>) -> Arc<Self> {
+        Arc::new(Self {
+            now: Mutex::new(now),
+            mono: Mutex::new(0),
+        })
+    }
+    pub fn advance(&self, by: chrono::Duration) {
+        let mut now = self.now.lock().unwrap();
+        *now += by;
+    }
+    pub fn set(&self, to: chrono::DateTime<chrono::Utc>) {
+        *self.now.lock().unwrap() = to;
+    }
+    pub fn now_utc(&self) -> chrono::DateTime<chrono::Utc> {
+        *self.now.lock().unwrap()
+    }
+}
+
+impl Clock for FakeClock {
+    fn now(&self) -> chrono::DateTime<chrono::Utc> {
+        *self.now.lock().unwrap()
+    }
+    fn monotonic_ms(&self) -> u64 {
+        let mut m = self.mono.lock().unwrap();
+        *m += 1;
+        *m
+    }
+}
+
 // ---------------------------------------------------------------- chat
+
+/// Called once per streamed delta. Lets a test react mid-stream.
+pub type DeltaHook = Mutex<Option<Arc<dyn Fn(&str) + Send + Sync>>>;
 
 pub struct ScriptedChat {
     pub responses: Mutex<Vec<ChatResponse>>,
     pub requests: Mutex<Vec<ChatRequest>>,
+    /// Test hook: observes every streamed delta (used to cancel mid-stream).
+    pub on_delta: DeltaHook,
 }
 
 impl ScriptedChat {
@@ -201,6 +247,7 @@ impl ScriptedChat {
         Arc::new(Self {
             responses: Mutex::new(responses),
             requests: Mutex::new(Vec::new()),
+            on_delta: Mutex::new(None),
         })
     }
     pub fn text(text: &str) -> ChatResponse {
@@ -244,9 +291,13 @@ impl ChatProvider for ScriptedChat {
             return Ok(ChatResponse::default());
         }
         let resp = r.remove(0);
+        let hook = self.on_delta.lock().unwrap().clone();
         for chunk in resp.text.as_bytes().chunks(8) {
             let s = String::from_utf8_lossy(chunk).to_string();
             on_delta(&s);
+            if let Some(h) = &hook {
+                h(&s);
+            }
         }
         Ok(resp)
     }

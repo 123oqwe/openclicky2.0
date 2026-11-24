@@ -18,14 +18,17 @@ struct Ctx {
     _dir: tempfile::TempDir,
     store: Arc<Store>,
     probe: Arc<FakeProbe>,
+    clock: Arc<FakeClock>,
 }
 
 fn script(responses: Vec<ChatResponse>) -> Ctx {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(Store::open_memory().unwrap());
     let chat = ScriptedChat::new(responses);
-    let clock: Arc<dyn openclicky_core::ports::Clock> =
-        Arc::new(openclicky_core::clock::SystemClock);
+    // Deterministic time: the approval windows are minutes wide, so tests move
+    // the clock instead of sleeping.
+    let fake_clock = FakeClock::new();
+    let clock: Arc<dyn openclicky_core::ports::Clock> = fake_clock.clone();
     let usage = Arc::new(UsageMeter::new(
         store.clone(),
         clock.clone(),
@@ -61,6 +64,7 @@ fn script(responses: Vec<ChatResponse>) -> Ctx {
         _dir: dir,
         store,
         probe,
+        clock: fake_clock,
     }
 }
 
@@ -300,4 +304,184 @@ fn task_is_charged_once_at_start_and_steps_separately() {
         1,
         "one step charged"
     );
+}
+
+// ---- approval / queue / waiting contracts ----
+
+#[test]
+fn approval_is_one_shot_for_the_same_call() {
+    let c = script(vec![
+        tool_call("fs_write", json!({"path":"once.txt","content":"x"})),
+        tool_call("fs_delete", json!({"path":"once.txt"})),
+        tool_call("fs_delete", json!({"path":"once.txt"})),
+    ]);
+    let task = c.runner.create("删一次").unwrap();
+    c.runner.step(&task.id).unwrap();
+    let outcome = c.runner.step(&task.id).unwrap();
+    assert_eq!(outcome.state, TaskState::WaitingApproval);
+
+    c.runner.approve(&task.id).unwrap();
+    let t = c.runner.get(&task.id).unwrap();
+    assert!(
+        t.checkpoint
+            .actions
+            .iter()
+            .any(|a| a.starts_with("grant:fs_delete:")),
+        "the approval is a grant for this exact call: {:?}",
+        t.checkpoint.actions
+    );
+
+    let outcome = c.runner.step(&task.id).unwrap();
+    assert_eq!(outcome.tool.as_deref(), Some("fs_delete"));
+
+    // The grant is gone once the call has run, so the very same dangerous call
+    // has to ask again.
+    let t = c.runner.get(&task.id).unwrap();
+    assert!(
+        t.checkpoint
+            .actions
+            .iter()
+            .all(|a| !a.starts_with("grant:")),
+        "the grant must be consumed: {:?}",
+        t.checkpoint.actions
+    );
+    let outcome = c.runner.step(&task.id).unwrap();
+    assert_eq!(
+        outcome.state,
+        TaskState::WaitingApproval,
+        "the second identical delete must ask again"
+    );
+}
+
+#[test]
+fn not_now_blocks_asking_for_thirty_minutes() {
+    let c = script(vec![
+        tool_call("fs_write", json!({"path":"n.txt","content":"x"})),
+        tool_call("fs_delete", json!({"path":"n.txt"})),
+        tool_call("fs_delete", json!({"path":"n.txt"})),
+        tool_call("fs_delete", json!({"path":"n.txt"})),
+    ]);
+    let task = c.runner.create("删文件").unwrap();
+    c.runner.step(&task.id).unwrap();
+    let outcome = c.runner.step(&task.id).unwrap();
+    assert_eq!(outcome.state, TaskState::WaitingApproval);
+
+    c.runner.deny(&task.id).unwrap();
+    let t = c.runner.get(&task.id).unwrap();
+    assert!(
+        t.checkpoint.denied_until.is_some(),
+        "deny has to record a 30 minute window"
+    );
+
+    // Right afterwards the same call is denied instead of prompting again.
+    let outcome = c.runner.step(&task.id).unwrap();
+    assert_ne!(
+        outcome.state,
+        TaskState::WaitingApproval,
+        "a denied window must not ask again"
+    );
+    assert!(
+        c.store
+            .steps(&task.id)
+            .unwrap()
+            .iter()
+            .any(|s| s.kind == "denied"),
+        "the call must be recorded as denied"
+    );
+
+    // 31 minutes later the window is over and the user is asked again.
+    c.clock.advance(chrono::Duration::minutes(31));
+    let outcome = c.runner.step(&task.id).unwrap();
+    assert_eq!(outcome.state, TaskState::WaitingApproval);
+    let t = c.runner.get(&task.id).unwrap();
+    assert!(
+        t.checkpoint.denied_until.is_none(),
+        "an expired window is cleared"
+    );
+}
+
+#[test]
+fn waiting_state_is_time_stamped_and_cleared() {
+    let c = script(vec![
+        tool_call("fs_write", json!({"path":"w.txt","content":"x"})),
+        tool_call("fs_delete", json!({"path":"w.txt"})),
+    ]);
+    let task = c.runner.create("写文件").unwrap();
+    c.runner.step(&task.id).unwrap();
+    assert!(
+        c.store
+            .task(&task.id)
+            .unwrap()
+            .unwrap()
+            .waiting_since
+            .is_none(),
+        "a running task is not waiting"
+    );
+
+    let outcome = c.runner.step(&task.id).unwrap();
+    assert_eq!(outcome.state, TaskState::WaitingApproval);
+    assert!(
+        c.store
+            .task(&task.id)
+            .unwrap()
+            .unwrap()
+            .waiting_since
+            .is_some(),
+        "waiting for approval must be time stamped"
+    );
+
+    c.runner.approve(&task.id).unwrap();
+    c.runner.step(&task.id).unwrap();
+    assert!(
+        c.store
+            .task(&task.id)
+            .unwrap()
+            .unwrap()
+            .waiting_since
+            .is_none(),
+        "leaving the waiting state clears the marker"
+    );
+}
+
+#[test]
+fn stale_waiting_tasks_are_paused_by_the_watchdog() {
+    let c = script(vec![
+        tool_call("fs_write", json!({"path":"s.txt","content":"x"})),
+        tool_call("fs_delete", json!({"path":"s.txt"})),
+    ]);
+    let task = c.runner.create("写文件").unwrap();
+    c.runner.step(&task.id).unwrap();
+    c.runner.step(&task.id).unwrap();
+
+    let now = c.clock.now_utc();
+    assert!(
+        c.runner.expire_stale_waiting(now).unwrap().is_empty(),
+        "a fresh wait is left alone"
+    );
+
+    let expired = c
+        .runner
+        .expire_stale_waiting(now + chrono::Duration::hours(25))
+        .unwrap();
+    assert_eq!(expired, vec![task.id.clone()]);
+    let t = c.runner.get(&task.id).unwrap();
+    assert_eq!(t.state, TaskState::Paused);
+    assert_eq!(t.error_code.as_deref(), Some("waiting_timeout"));
+    assert!(c
+        .store
+        .task(&task.id)
+        .unwrap()
+        .unwrap()
+        .waiting_since
+        .is_none());
+}
+
+#[test]
+fn the_fourth_active_task_is_rejected() {
+    let c = script(vec![]);
+    for i in 0..3 {
+        c.runner.create(&format!("第{i}件事")).unwrap();
+    }
+    let err = c.runner.create("第四件事").unwrap_err();
+    assert_eq!(err.code(), "E_QUEUE");
 }

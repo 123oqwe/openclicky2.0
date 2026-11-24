@@ -32,13 +32,13 @@
 - 范围：TR-01/02/05/06/12；TC-E2E-ASK-001…006、TC-ANNO-001…013、TC-HK-*
 - 版本基线：`81691a6`
 - 执行结果：`cargo test -p openclicky-core` 全绿；每个问题只采集 1 次、标签剥离、坐标按图片比例、TTS 失败回落剪贴板
-- 结论：**通过**
+- 结论：**有条件通过**。13 条 `TC-ANNO-*` 细项仍为 spec-only，按 `04-test-design.md` 的规则不得计为通过
 - 未测：真实供应商在线路径（无 key）；平台真机 TCC 弹窗（本机 `doctor` 已显示 ok）
 
 ### G2-WP3 任务（办）
 - 范围：TR-17/18/19；TC-AGT-001…009
 - 版本基线：`81691a6`
-- 执行结果：状态机全边、批准/拒绝、循环停止、恢复、计费（任务一次 + 20 分钟后豁免）
+- 执行结果：状态机全边、一次性批准、拒绝后 30 分钟静默、循环停止、恢复、等待 24 小时转暂停、并发上限 3、计费（任务收一次，步数如实计）
 - 结论：**通过**
 - 未测：真实长任务（>20 分钟）计时；外部副作用"结果未知"的端到端演练
 
@@ -69,11 +69,11 @@
 
 | # | 条件 | 状态 | 证据 |
 |---|---|---|---|
-| 1 | L1–L3 全绿 + 覆盖率 | ⚠️ | 135 tests 全绿，但**覆盖率未测**（未接 `cargo llvm-cov`），按 tech-prd §04.1 只能记未实测 |
+| 1 | L1–L3 全绿 + 覆盖率 | ⚠️ | 171 tests 全绿，但**覆盖率未测**（未接 `cargo llvm-cov`），按 tech-prd §04.1 只能记未实测 |
 | 2 | clippy 无警告、fmt 干净 | ✅ | CI rust matrix / 本地同命令 |
 | 3 | 三平台 release 构建成功 | ⚠️ 仅 macOS | 本机 app bundle |
 | 4 | 三平台安装 + 首启冒烟 | ❌ | 无安装器产物 |
-| 5 | INV-1…8 有用例且通过 | ✅ | TDS 矩阵 71/72 |
+| 5 | INV-1…8 有用例且通过 | ⚠️ | INV-1/3/4/7 有绑定用例；INV-2/5/6/8 仍只有函数级用例，缺端到端证据（见 §7） |
 | 6 | G2 结论绑定同一 commit | ⚠️ | 本文件绑定 `81691a6`，但 WP6 未通过 |
 | 7 | 无 P0/P1 未测项 | ⚠️ | 见 §5 |
 | 8 | 迁移与恢复演练 | ❌ | 未做 |
@@ -118,3 +118,35 @@
 | 结构不变量 | `scripts/check-invariants.sh` |
 | 复核原始数据 | `docs/reviews/audit/findings-2026-11-23.json` |
 | 三平台打包 job | `.github/workflows/release.yml`（desktop） |
+
+## 7. 2026-11-24 全栈审核修复批次
+
+依据 `docs/reviews/fullstack-audit-2026-11-24.md`。证据：`cargo test --workspace` 171 通过、`clippy -D warnings` 干净、四个文档脚本全绿。
+
+| 修复 | 位置 | 绑定测试（文件 › 用例） |
+|---|---|---|
+| 迁移 v2：五个新列、步骤唯一键、两个索引、审计只追加触发器 | `store/migrations.rs` M002 | `store mod` › `migration_adds_the_columns_the_decisions_promised`、`duplicate_step_rows_are_rejected`、`audit_log_rejects_updates_but_deletion_flow_still_runs` |
+| 批准一次性 | `agent/runner.rs` | `e2e_agent` › `approval_is_one_shot_for_the_same_call` |
+| 拒绝静默 30 分钟 | `Checkpoint.denied_until` | `e2e_agent` › `not_now_blocks_asking_for_thirty_minutes` |
+| 等待 24 小时转暂停 | `persist` + `expire_stale_waiting` | `e2e_agent` › `stale_waiting_tasks_are_paused_by_the_watchdog` |
+| 并发上限 3（E_QUEUE） | `TaskRunner::create` | `e2e_agent` › `the_fourth_active_task_is_rejected` |
+| 预算覆盖问答、打字、听写 | `voice.rs`、`dictation.rs` | `e2e_ask` › `exhausted_budget_blocks_a_typed_question_before_any_request`、`exhausted_budget_blocks_the_hotkey_path_too` |
+| 打字提问流式且可取消 | `voice.rs` | `e2e_ask` › `typed_answers_stream_deltas_then_the_answer`、`cancelling_a_typed_answer_stops_the_stream_and_charges_nothing` |
+| 祈使句判定为任务 | `router.rs` + 桌面热键 | `router` › 6 条（`imperative_*`、`a_question_mark_makes_it_not_a_task`） |
+| 卡号与验证码守卫 | `dictation.rs` `looks_secret` | `dictation` › `card_numbers_are_detected_by_luhn_even_without_the_word`、`one_time_codes_are_detected_but_years_are_not` |
+| SSRF：真实 IP、IPv6、禁跟随重定向 | `tools/net.rs`、`platform/http.rs` | `tools net` › `blocks_loopback_and_private`、`parses_ipv6_with_port`、`resolution_catches_names_that_point_home` |
+| 出站载荷需批准 | `tools/mod.rs` | `tools net` › `long_query_counts_as_an_outbound_payload` |
+| 前端零 innerHTML | `ui/dist/index.html` | 无自动化，一次性 DOM 断言 |
+| 授权清单、CSP、图标 | `capabilities/default.json`、`tauri.conf.json` | 需真机 |
+| 取消令牌表、answer_question、权限命令、单实例、召回键、托盘 | `apps/desktop/src/main.rs` | 需真机 |
+| 不可信文本包装 | `prompt.rs` + `runner.rs` | `prompt` › 注入与围栏用例 |
+| Linux 密钥不再可复算落盘 | `platform/secrets.rs` | `secrets` › 内存默认、opt-in、0600、跨安装不同密文 |
+| 十处文档矛盾、37 条无归属规则 | `01/02/03/04`、`ADR-0012`、`00-baseline` | 三个文档脚本 |
+
+**仍未修，逐条记录**：
+
+1. INV-2、INV-5、INV-6、INV-8 仍缺端到端用例，只有函数级测试。
+2. `ask_typed` 仍不截图、不画指（PRD C4 的一半）。
+3. 真实模型、真机 TCC、Windows/Linux 构建、托盘渲染、CSP 运行时效果均未验证。
+4. 覆盖率仍未接 `cargo llvm-cov`，G3 第 1 条只能是未实测。
+5. 六个产品分叉（账号付费、热键手感、多屏、听写注入、加密、遥测）未拍板，当前按可回滚的 A 选项落地。

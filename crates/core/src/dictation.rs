@@ -86,7 +86,53 @@ pub fn looks_secret(text: &str) -> bool {
         "otp",
         "card number",
     ];
-    WORDS.iter().any(|w| lower.contains(w))
+    if WORDS.iter().any(|w| lower.contains(w)) {
+        return true;
+    }
+    has_card_number(&lower) || has_otp(&lower)
+}
+
+/// Luhn check over any 13-19 digit run, so a dictation of a card number is
+/// stopped even when nobody says the word "card".
+fn has_card_number(text: &str) -> bool {
+    text.split(|c: char| !(c.is_ascii_digit() || c == ' ' || c == '-'))
+        .map(|chunk| {
+            chunk
+                .chars()
+                .filter(char::is_ascii_digit)
+                .collect::<String>()
+        })
+        .any(|digits| (13..=19).contains(&digits.len()) && luhn(&digits))
+}
+
+fn luhn(digits: &str) -> bool {
+    let mut sum = 0u32;
+    let mut double = false;
+    for c in digits.chars().rev() {
+        let Some(d) = c.to_digit(10) else {
+            return false;
+        };
+        let mut d = d;
+        if double {
+            d *= 2;
+            if d > 9 {
+                d -= 9;
+            }
+        }
+        sum += d;
+        double = !double;
+    }
+    sum.is_multiple_of(10)
+}
+
+/// A standalone six-to-eight digit token is almost always a one-time code.
+/// Four and five digit tokens are excluded on purpose: years and prices would
+/// trip them constantly.
+fn has_otp(text: &str) -> bool {
+    text.split_whitespace().any(|tok| {
+        let t = tok.trim_matches(|c: char| !c.is_ascii_digit());
+        (6..=8).contains(&t.len()) && t.chars().all(|c| c.is_ascii_digit())
+    })
 }
 
 /// CJK text must not gain a space after it.
@@ -159,6 +205,13 @@ impl DictationEngine {
                     .join(" "),
             )
         };
+        if !self.deps.usage.can_start(self.deps.clock.now())? {
+            self.deps.emit(AppEvent::Notice {
+                code: "E_BUDGET".into(),
+                message: "今天的额度用完了，听写已暂停。".into(),
+            });
+            return Ok(None);
+        }
         let transcript = self.deps.stt.transcribe(&clip, hint.as_deref())?;
         let text = apply_dictionary(&transcript.text, &pairs);
         let mut injected = self.injected.lock().unwrap();
@@ -207,6 +260,10 @@ impl DictationEngine {
             .iter()
             .map(|d| (d.heard.clone(), d.corrected.clone()))
             .collect();
+        if !self.deps.usage.can_start(self.deps.clock.now())? {
+            self.deps.emit(AppEvent::State(crate::voice::State::Idle));
+            return Err(Error::BudgetExhausted);
+        }
         let transcript = self.deps.stt.transcribe(&clip, None)?;
         let raw = if transcript.text.trim().is_empty() {
             self.injected.lock().unwrap().clone()
@@ -376,6 +433,21 @@ mod tests {
         assert!(looks_secret("my password is hunter2"));
         assert!(looks_secret("验证码是 123456"));
         assert!(!looks_secret("write a short reply"));
+    }
+
+    #[test]
+    fn card_numbers_are_detected_by_luhn_even_without_the_word() {
+        assert!(looks_secret("4111 1111 1111 1111"));
+        assert!(looks_secret("4111111111111111"));
+        assert!(!looks_secret("4111 1111 1111 1112"));
+    }
+
+    #[test]
+    fn one_time_codes_are_detected_but_years_are_not() {
+        assert!(looks_secret("the code is 123456"));
+        assert!(looks_secret("use 90817263 now"));
+        assert!(!looks_secret("we ship in 2026"));
+        assert!(!looks_secret("it costs 1234"));
     }
 
     #[test]

@@ -117,8 +117,12 @@ pub struct Checkpoint {
     pub facts: Vec<String>,
     pub pending_question: Option<String>,
     pub pending_call: Option<PendingCall>,
-    /// Non-idempotent actions already executed; never replayed.
+    /// Non-idempotent actions already executed; never replayed. Also holds
+    /// one-shot approval grants (`grant:<tool>:<args_digest>`).
     pub actions: Vec<String>,
+    /// After `Not now`: do not ask again until this instant (SRC-PRD K4).
+    #[serde(default)]
+    pub denied_until: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl Default for Checkpoint {
@@ -131,6 +135,7 @@ impl Default for Checkpoint {
             pending_question: None,
             pending_call: None,
             actions: Vec::new(),
+            denied_until: None,
         }
     }
 }
