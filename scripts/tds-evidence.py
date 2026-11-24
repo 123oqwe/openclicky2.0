@@ -93,7 +93,7 @@ ROWS = [
  ("TC-USE-005", "当日提额解除阻断", "TC-USE-005", "已实现",
   "crates/core/src/usage.rs::temporary_grant_unblocks_today", "月度提额待 F3"),
  ("TC-USE-006", "长任务只计一次", "TC-USE-006", "已实现",
-  "crates/core/src/usage.rs::agent_steps_after_twenty_minutes_are_waived", "runner 在 20 分钟后豁免后续回合"),
+  "crates/core/src/usage.rs::agent_steps_are_always_metered_even_after_twenty_minutes", "20 分钟后步数仍如实计量"),
  ("TC-AGT-001", "写文件后带证据完成", "TC-AGT-001", "已实现",
   "crates/core/tests/e2e_agent.rs::writes_a_file_then_finishes_with_evidence", ""),
  ("TC-AGT-002", "拒绝后不执行且 30 分钟内不问", "TC-AGT-002", "已实现",
