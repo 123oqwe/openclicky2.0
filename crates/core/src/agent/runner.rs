@@ -233,6 +233,10 @@ impl TaskRunner {
                 task_already_charged: false,
             })?;
             task.units += units;
+        } else if task.state == TaskState::Paused {
+            // An explicit retry after a denial or a pause resumes the task; the
+            // 30 minute denial window still applies to the same call.
+            self.persist(&mut task, TaskState::Running, None, None)?;
         } else if !matches!(
             task.state,
             TaskState::Running | TaskState::WaitingApproval | TaskState::WaitingUser

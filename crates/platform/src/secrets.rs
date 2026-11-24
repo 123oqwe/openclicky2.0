@@ -362,8 +362,7 @@ mod tests {
 
     fn disk_store() -> (tempfile::TempDir, PlatformSecrets) {
         let dir = tempfile::tempdir().unwrap();
-    fn disk_store() -> (tempfile::TempDir, PlatformSecrets) {
-        let mut store = store;
+        let mut store = PlatformSecrets::open(dir.path(), false);
         store.opt_in_file_store().unwrap();
         (dir, store)
     }
