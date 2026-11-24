@@ -85,11 +85,12 @@ pub fn execute(paths: &DeletionPaths, store: &Store, secrets: &dyn Secrets) -> R
         ..Default::default()
     };
 
-    record(
-        &mut report,
-        "1/8 sqlite rows",
-        store.delete_everything().map(|_| ()),
-    );
+    let rows = store.delete_everything().and_then(|r| match r.all_ok() {
+        true => Ok(()),
+        false => Err(crate::error::Error::Store(r.failures().join("; "))),
+    });
+    let closed = store.close();
+    record(&mut report, "1/8 sqlite rows and handle", rows.and(closed));
     record(
         &mut report,
         "2/8 memory files",
@@ -210,5 +211,86 @@ mod tests {
             &secrets,
         );
         assert!(report.all_ok(), "failures: {:?}", report.failures());
+    }
+
+    #[test]
+    fn deletion_releases_the_database_handle_before_removing_files() {
+        struct NoSecrets;
+        impl Secrets for NoSecrets {
+            fn get(&self, _k: &str) -> Result<Option<SecretString>> {
+                Ok(None)
+            }
+            fn set(&self, _k: &str, _v: &SecretString) -> Result<()> {
+                Ok(())
+            }
+            fn delete(&self, _k: &str) -> Result<()> {
+                Ok(())
+            }
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("app.db");
+        let store = Store::open(&db).unwrap();
+        let report = execute(
+            &DeletionPaths {
+                memory_dir: dir.path().join("memory"),
+                workspace_dir: dir.path().join("workspace"),
+                log_dir: dir.path().join("logs"),
+                db_file: db.clone(),
+            },
+            &store,
+            &NoSecrets,
+        );
+
+        assert!(report.all_ok(), "failures: {:?}", report.failures());
+        assert!(
+            store.version().is_err(),
+            "the connection must be closed before the file is unlinked; Windows refuses otherwise"
+        );
+        assert!(store.close().is_ok(), "closing twice stays a no-op");
+        assert!(!db.exists());
+    }
+
+    #[test]
+    fn a_table_that_refuses_to_empty_fails_step_one() {
+        struct NoSecrets;
+        impl Secrets for NoSecrets {
+            fn get(&self, _k: &str) -> Result<Option<SecretString>> {
+                Ok(None)
+            }
+            fn set(&self, _k: &str, _v: &SecretString) -> Result<()> {
+                Ok(())
+            }
+            fn delete(&self, _k: &str) -> Result<()> {
+                Ok(())
+            }
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("app.db");
+        let store = Store::open(&db).unwrap();
+        store.drop_table_for_test("messages").unwrap();
+        let report = execute(
+            &DeletionPaths {
+                memory_dir: dir.path().join("memory"),
+                workspace_dir: dir.path().join("workspace"),
+                log_dir: dir.path().join("logs"),
+                db_file: db.clone(),
+            },
+            &store,
+            &NoSecrets,
+        );
+
+        assert!(
+            !report.all_ok(),
+            "a failed table must show up in the report"
+        );
+        let first = &report.failures()[0];
+        assert!(first.starts_with("1/8"), "{first}");
+        assert!(first.contains("messages"), "{first}");
+        assert!(
+            !db.exists(),
+            "the file still goes, even when the row wipe reports a failure"
+        );
     }
 }

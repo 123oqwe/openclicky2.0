@@ -5,8 +5,9 @@ pub mod migrations;
 
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
+use std::ops::{Deref, DerefMut};
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 use crate::error::{Error, Result};
 use crate::security;
@@ -131,11 +132,67 @@ impl DeletionReport {
 }
 
 pub struct Store {
-    conn: Mutex<Connection>,
+    conn: Mutex<Option<Connection>>,
     path: Option<std::path::PathBuf>,
 }
 
+/// Held connection. Exists so callers never see the `Option` that `close()`
+/// empties, and so a poisoned mutex surfaces as an error instead of a panic
+/// that would take every later store call down with it.
+struct Conn<'a>(MutexGuard<'a, Option<Connection>>);
+
+impl Deref for Conn<'_> {
+    type Target = Connection;
+    fn deref(&self) -> &Connection {
+        self.0
+            .as_ref()
+            .expect("conn_guard() rejects a closed store")
+    }
+}
+
+impl DerefMut for Conn<'_> {
+    fn deref_mut(&mut self) -> &mut Connection {
+        self.0
+            .as_mut()
+            .expect("conn_guard() rejects a closed store")
+    }
+}
+
 impl Store {
+    fn conn_guard(&self) -> Result<Conn<'_>> {
+        let guard = self
+            .conn
+            .lock()
+            .map_err(|_| Error::Store("数据库连接已被污染，请重启应用".into()))?;
+        if guard.is_none() {
+            return Err(Error::Store("数据库已关闭".into()));
+        }
+        Ok(Conn(guard))
+    }
+
+    /// Release the SQLite handle. Account deletion has to call this before it
+    /// removes the files, because Windows refuses to unlink an open handle
+    /// (os error 32). Idempotent: closing twice is a no-op.
+    pub fn close(&self) -> Result<()> {
+        let mut guard = self
+            .conn
+            .lock()
+            .map_err(|_| Error::Store("数据库连接已被污染，请重启应用".into()))?;
+        match guard.take() {
+            Some(conn) => conn.close().map_err(|(_, e)| map_err(e)),
+            None => Ok(()),
+        }
+    }
+
+    /// Test seam: a table that refuses to empty is the only way to prove the
+    /// deletion report tells the truth about a failed step.
+    #[cfg(test)]
+    pub fn drop_table_for_test(&self, table: &str) -> Result<()> {
+        self.conn_guard()?
+            .execute_batch(&format!("DROP TABLE {table}"))
+            .map_err(map_err)
+    }
+
     pub fn open(path: &Path) -> Result<Self> {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| Error::Io(e.to_string()))?;
@@ -146,7 +203,7 @@ impl Store {
         }
         let conn = Connection::open(path).map_err(map_err)?;
         let store = Self {
-            conn: Mutex::new(conn),
+            conn: Mutex::new(Some(conn)),
             path: Some(path.to_path_buf()),
         };
         store.configure()?;
@@ -157,7 +214,7 @@ impl Store {
     pub fn open_memory() -> Result<Self> {
         let conn = Connection::open_in_memory().map_err(map_err)?;
         let store = Self {
-            conn: Mutex::new(conn),
+            conn: Mutex::new(Some(conn)),
             path: None,
         };
         store.configure()?;
@@ -170,7 +227,7 @@ impl Store {
     }
 
     fn configure(&self) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn_guard()?;
         conn.pragma_update(None, "foreign_keys", "ON")
             .map_err(map_err)?;
         if self.path.is_some() {
@@ -183,13 +240,13 @@ impl Store {
     }
 
     pub fn version(&self) -> Result<i32> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn_guard()?;
         conn.query_row("PRAGMA user_version", [], |r| r.get(0))
             .map_err(map_err)
     }
 
     pub fn migrate(&self) -> Result<()> {
-        let mut conn = self.conn.lock().unwrap();
+        let mut conn = self.conn_guard()?;
         let current: i32 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .map_err(map_err)?;
@@ -213,7 +270,7 @@ impl Store {
 
     pub fn insert_session(&self, kind: &str, now: DateTime<Utc>) -> Result<String> {
         let id = uuid::Uuid::new_v4().to_string();
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn_guard()?;
         conn.execute(
             "INSERT INTO sessions (id, created_at, kind) VALUES (?1, ?2, ?3)",
             params![id, now.to_rfc3339(), kind],
@@ -223,14 +280,14 @@ impl Store {
     }
 
     pub fn append_message(&self, m: &MessageRow) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn_guard()?;
         exec_message(&conn, m)
     }
 
     /// Single transaction: messages + usage + task state. Prevents "reply saved
     /// but usage not recorded" (INV-D2).
     pub fn commit_turn(&self, turn: &Turn) -> Result<()> {
-        let mut conn = self.conn.lock().unwrap();
+        let mut conn = self.conn_guard()?;
         let tx = conn.transaction().map_err(map_err)?;
         for m in &turn.messages {
             exec_message(&tx, m)?;
@@ -272,7 +329,7 @@ impl Store {
     }
 
     pub fn recent_messages(&self, session_id: &str, limit: usize) -> Result<Vec<MessageRow>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn_guard()?;
         let mut stmt = conn
             .prepare(
                 "SELECT id, session_id, role, content, model, created_at, meta_json
@@ -301,7 +358,7 @@ impl Store {
     }
 
     pub fn upsert_task(&self, t: &TaskRow) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn_guard()?;
         conn.execute(
             "INSERT INTO tasks (id, name, goal, state, checkpoint_json, created_at, updated_at,
                                 heartbeat_at, epoch, units, steps_done, result, error_code, owner, retries, prompt_version, tool_schema_version, waiting_since)
@@ -327,7 +384,7 @@ impl Store {
     }
 
     pub fn task(&self, id: &str) -> Result<Option<TaskRow>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn_guard()?;
         conn.query_row(
             "SELECT id, name, goal, state, checkpoint_json, created_at, updated_at, heartbeat_at,
                     epoch, units, steps_done, result, error_code, owner, retries, prompt_version, tool_schema_version, waiting_since FROM tasks WHERE id=?1",
@@ -339,7 +396,7 @@ impl Store {
     }
 
     pub fn list_tasks(&self, state: Option<&str>) -> Result<Vec<TaskRow>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn_guard()?;
         let sql = match state {
             Some(_) => "SELECT id, name, goal, state, checkpoint_json, created_at, updated_at, heartbeat_at, epoch, units, steps_done, result, error_code, owner, retries, prompt_version, tool_schema_version, waiting_since FROM tasks WHERE state=?1 ORDER BY updated_at DESC",
             None => "SELECT id, name, goal, state, checkpoint_json, created_at, updated_at, heartbeat_at, epoch, units, steps_done, result, error_code, owner, retries, prompt_version, tool_schema_version, waiting_since FROM tasks ORDER BY updated_at DESC",
@@ -361,7 +418,7 @@ impl Store {
     }
 
     pub fn record_step(&self, s: &StepRecord) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn_guard()?;
         conn.execute(
             "INSERT INTO task_steps (task_id, step, kind, tool, request_json, result_json, ok, code, created_at)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
@@ -372,7 +429,7 @@ impl Store {
     }
 
     pub fn steps(&self, task_id: &str) -> Result<Vec<StepRecord>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn_guard()?;
         let mut stmt = conn
             .prepare("SELECT task_id, step, kind, tool, request_json, result_json, ok, code, created_at FROM task_steps WHERE task_id=?1 ORDER BY id")
             .map_err(map_err)?;
@@ -399,7 +456,7 @@ impl Store {
     }
 
     pub fn audit(&self, a: &AuditRow) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn_guard()?;
         conn.execute(
             "INSERT INTO audit_log (task_id, tool, risk, args_digest, outcome, created_at) VALUES (?1,?2,?3,?4,?5,?6)",
             params![a.task_id, a.tool, a.risk, a.args_digest, a.outcome, a.created_at.to_rfc3339()],
@@ -409,7 +466,7 @@ impl Store {
     }
 
     pub fn usage_between(&self, from: DateTime<Utc>, to: DateTime<Utc>) -> Result<Vec<UsageRow>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn_guard()?;
         let mut stmt = conn
             .prepare("SELECT kind, units, task_id, session_id, waived, created_at, meta_json FROM usage_events WHERE created_at >= ?1 AND created_at <= ?2")
             .map_err(map_err)?;
@@ -434,7 +491,7 @@ impl Store {
     }
 
     pub fn bump_metric(&self, day: &str, name: &str, delta: f64) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn_guard()?;
         conn.execute(
             "INSERT INTO metrics_daily (day, name, value) VALUES (?1,?2,?3)
              ON CONFLICT(day, name) DO UPDATE SET value = value + excluded.value",
@@ -445,7 +502,7 @@ impl Store {
     }
 
     pub fn metric(&self, day: &str, name: &str) -> Result<f64> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn_guard()?;
         let v: Option<f64> = conn
             .query_row(
                 "SELECT value FROM metrics_daily WHERE day=?1 AND name=?2",
@@ -458,7 +515,7 @@ impl Store {
     }
 
     pub fn upsert_dict(&self, heard: &str, corrected: &str, now: DateTime<Utc>) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn_guard()?;
         conn.execute(
             "INSERT INTO dict_entries (heard, corrected, learned_at) VALUES (?1,?2,?3)
              ON CONFLICT(heard) DO UPDATE SET corrected=excluded.corrected, learned_at=excluded.learned_at",
@@ -469,7 +526,7 @@ impl Store {
     }
 
     pub fn dict(&self) -> Result<Vec<(String, String)>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn_guard()?;
         let mut stmt = conn
             .prepare("SELECT heard, corrected FROM dict_entries ORDER BY learned_at DESC")
             .map_err(map_err)?;
@@ -484,7 +541,7 @@ impl Store {
     }
 
     pub fn upsert_routine(&self, r: &RoutineRow) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn_guard()?;
         conn.execute(
             "INSERT INTO routines (id, name, schedule, enabled, next_run_at, run_count, failures, last_result, task_template)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)
@@ -501,7 +558,7 @@ impl Store {
     }
 
     pub fn routines(&self) -> Result<Vec<RoutineRow>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn_guard()?;
         let mut stmt = conn
             .prepare("SELECT id, name, schedule, enabled, next_run_at, run_count, failures, last_result, task_template FROM routines ORDER BY name")
             .map_err(map_err)?;
@@ -541,7 +598,7 @@ impl Store {
             "routines",
             "dict_entries",
         ];
-        let mut conn = self.conn.lock().unwrap();
+        let mut conn = self.conn_guard()?;
         let tx = conn.transaction().map_err(map_err)?;
         for t in tables {
             match tx.execute(&format!("DELETE FROM {t}"), []) {
@@ -556,7 +613,7 @@ impl Store {
     /// Record when a task entered `waiting_approval`/`waiting_user` so the
     /// watchdog can expire it instead of parking forever.
     pub fn mark_waiting(&self, id: &str, epoch: i64, since: DateTime<Utc>) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn_guard()?;
         let changed = conn
             .execute(
                 "UPDATE tasks SET waiting_since=?3, updated_at=?3 WHERE id=?1 AND epoch=?2",
@@ -571,7 +628,7 @@ impl Store {
 
     /// Clear the waiting marker whenever the task leaves a waiting state.
     pub fn clear_waiting(&self, id: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn_guard()?;
         conn.execute(
             "UPDATE tasks SET waiting_since=NULL WHERE id=?1",
             params![id],
@@ -583,7 +640,7 @@ impl Store {
     /// Tasks that have been waiting longer than the cutoff. Used by the
     /// watchdog to move them to `Paused(waiting_timeout)`.
     pub fn stale_waiting(&self, cutoff: DateTime<Utc>) -> Result<Vec<TaskRow>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn_guard()?;
         let mut stmt = conn
             .prepare(
                 "SELECT id, name, goal, state, checkpoint_json, created_at, updated_at, heartbeat_at,
@@ -603,7 +660,7 @@ impl Store {
     }
 
     pub fn checkpoint_wal(&self) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn_guard()?;
         conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
             .map_err(map_err)
     }
@@ -658,7 +715,7 @@ pub fn args_digest(args: &serde_json::Value) -> String {
 
 impl Store {
     pub fn insert_usage(&self, u: &UsageRow) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn_guard()?;
         conn.execute(
             "INSERT INTO usage_events (kind, units, task_id, session_id, waived, created_at, meta_json)
              VALUES (?1,?2,?3,?4,?5,?6,?7)",
@@ -719,7 +776,7 @@ mod tests {
     fn migration_adds_the_columns_the_decisions_promised() {
         let s = mem();
         assert_eq!(s.version().unwrap(), 2);
-        let conn = s.conn.lock().unwrap();
+        let conn = s.conn_guard().unwrap();
         let mut stmt = conn.prepare("PRAGMA table_info(tasks)").unwrap();
         let cols: Vec<String> = stmt
             .query_map([], |r| r.get::<_, String>(1))
@@ -759,7 +816,7 @@ mod tests {
         })
         .unwrap();
         {
-            let conn = s.conn.lock().unwrap();
+            let conn = s.conn_guard().unwrap();
             let err = conn
                 .execute("UPDATE audit_log SET outcome='tampered'", [])
                 .unwrap_err();
