@@ -3,7 +3,7 @@
 | 项 | 值 |
 |---|---|
 | 编号 | OC2-SDD |
-| 版本 | 1.3（2026-11-23，补齐 geom/Trail/删除/providers/桌面壳与命令面） |
+| 版本 | 1.4（2026-11-23，A-04 补充删除/供应商/轨迹/桌面命令的单元契约） |
 | 状态 | 已批准 |
 | 依据 | `01-tech-prd.md` v1.0、`adr/ADR-0001…0013` |
 | 适用 | `crates/core`、`crates/platform`、`apps/desktop`、`apps/cli`、前端 |
@@ -1015,6 +1015,10 @@ interface_language = "zh"
 | `DictationEngine::tick` | 状态=Dictating | 缓冲 ≥ 300ms | 转写→合并→注入后缀 | 文本已注入 | 写剪贴板（可还原） | 跳过本次，不中断 | 与 `finish` 互斥 | 环形缓冲固定 60s |
 | `tools::fs::write` | 工作区存在 | 路径已 canonicalize 且在根内 | 临时文件→rename | 文件存在且 hash 可回读 | 覆盖目标 | `Denied`/`Io` | 同路径 60s 内二次写产生 `.conflict` | 备份至 `.trash/` |
 | `routines::decide` | 记录存在 | 时间/网络/预算已给出 | 规则表 | 决策枚举 | 无（纯函数） | 不适用 | 纯函数，可并行 | 无 |
+| `deletion::execute` | 用户确认删除 | 路径与 store 可用 | 八步顺序执行，每步独立记录 | 返回 `Report`（8 步 + 范围外） | 删 DB 行、删文件、删钥匙串 | 单步失败不中断，记入报告 | 与运行中的应用互斥（先退出） | 不持有句柄，逐项释放 |
+| `providers::build` | 配置合法 | 有 key、有 model | 按 `ProviderKind` 选协议实现 | 返回 `Arc<dyn ChatProvider>` | 无 | `NoApiKey` / 配置错误 | 无状态，可并发 | 无 |
+| `geom::Trail::push` | — | 相邻点距离 ≥2px | 采样去抖 | 点序列 | 无 | 不适用 | 单线程（壳采样线程） | 上限由会话时长决定，30Hz |
+| 桌面命令 `ask_text` | 壳已启动 | 文本非空 | 调 `VoiceEngine::ask_typed` | 返回回答文本 | 落库 + 计费 | 把 `Error` 映射为字符串 | 与语音会话共享单飞 | 无 |
 
 ## A-07 接口语义承诺（"成功"到底意味着什么）
 
