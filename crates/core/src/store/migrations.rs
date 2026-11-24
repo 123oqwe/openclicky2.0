@@ -4,7 +4,7 @@
 //! transaction and the whole batch is preceded by a file backup (see
 //! `Store::open`).
 
-pub const LATEST: i32 = 2;
+pub const LATEST: i32 = 3;
 
 pub const M001: &str = r#"
 CREATE TABLE IF NOT EXISTS sessions (
@@ -126,10 +126,61 @@ BEGIN
 END;
 "#;
 
+/// M003: the approval ledger, artifact ownership, and full-text search. All
+/// three are things the UI has to answer after a restart, so they cannot live
+/// only in the task checkpoint.
+pub const M003: &str = r#"
+ALTER TABLE tasks ADD COLUMN pause_reason TEXT;
+
+CREATE TABLE IF NOT EXISTS approvals (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  step INTEGER NOT NULL,
+  tool TEXT NOT NULL,
+  risk TEXT NOT NULL,
+  args_digest TEXT NOT NULL,
+  prompt_json TEXT NOT NULL,
+  decision TEXT NOT NULL DEFAULT 'pending',
+  created_at TEXT NOT NULL,
+  decided_at TEXT,
+  consumed_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_approvals_step ON approvals(task_id, step);
+CREATE INDEX IF NOT EXISTS idx_approvals_open ON approvals(decision, created_at);
+
+CREATE TABLE IF NOT EXISTS artifacts (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  path TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  bytes INTEGER NOT NULL,
+  sha256 TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_artifacts_task ON artifacts(task_id);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+  content, content='messages', content_rowid='rowid'
+);
+CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
+  INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
+END;
+CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
+  INSERT INTO messages_fts(messages_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
+END;
+CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
+  INSERT INTO messages_fts(messages_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
+  INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
+END;
+
+INSERT INTO messages_fts(rowid, content) SELECT rowid, content FROM messages;
+"#;
+
 pub fn script(version: i32) -> Option<&'static str> {
     match version {
         1 => Some(M001),
         2 => Some(M002),
+        3 => Some(M003),
         _ => None,
     }
 }

@@ -84,6 +84,38 @@ pub fn digest_hex(input: &str) -> String {
     out.iter().take(8).map(|b| format!("{b:02x}")).collect()
 }
 
+/// Content hash for artifact ownership. Full digest, unlike `digest_hex` which
+/// is truncated because it only names a log line.
+pub fn sha256_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// Streamed content hash, so recording a large artifact does not load it.
+pub fn sha256_file(path: &std::path::Path) -> std::io::Result<String> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect())
+}
+
 /// Strip control characters from a value destined for a log field.
 pub fn log_safe(input: &str, max: usize) -> String {
     let cleaned: String = input.chars().filter(|c| !c.is_control()).collect();

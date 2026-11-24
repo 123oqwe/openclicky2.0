@@ -131,6 +131,32 @@ impl DeletionReport {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ApprovalRow {
+    pub id: String,
+    pub task_id: String,
+    pub step: i64,
+    pub tool: String,
+    pub risk: String,
+    pub args_digest: String,
+    pub prompt_json: String,
+    pub decision: String,
+    pub created_at: DateTime<Utc>,
+    pub decided_at: Option<DateTime<Utc>>,
+    pub consumed_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ArtifactRow {
+    pub id: String,
+    pub task_id: String,
+    pub path: String,
+    pub kind: String,
+    pub bytes: i64,
+    pub sha256: String,
+    pub created_at: DateTime<Utc>,
+}
+
 pub struct Store {
     conn: Mutex<Option<Connection>>,
     path: Option<std::path::PathBuf>,
@@ -659,6 +685,200 @@ impl Store {
         Ok(out)
     }
 
+    /// Idempotent per (task, step): asking twice about the same call keeps the
+    /// original row, so the ledger does not grow with every render.
+    pub fn insert_approval(&self, a: &ApprovalRow) -> Result<()> {
+        let conn = self.conn_guard()?;
+        conn.execute(
+            "INSERT INTO approvals
+             (id, task_id, step, tool, risk, args_digest, prompt_json, decision, created_at)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)
+             ON CONFLICT(task_id, step) DO NOTHING",
+            params![
+                a.id,
+                a.task_id,
+                a.step,
+                a.tool,
+                a.risk,
+                a.args_digest,
+                a.prompt_json,
+                a.decision,
+                a.created_at.to_rfc3339()
+            ],
+        )
+        .map_err(map_err)?;
+        Ok(())
+    }
+
+    /// Returns whether a pending row was transitioned. Deciding the same step
+    /// twice returns false instead of overwriting the first verdict.
+    pub fn decide_approval(
+        &self,
+        task_id: &str,
+        step: i64,
+        allowed: bool,
+        now: DateTime<Utc>,
+    ) -> Result<bool> {
+        let conn = self.conn_guard()?;
+        let decision = if allowed { "allowed" } else { "denied" };
+        let changed = conn
+            .execute(
+                "UPDATE approvals SET decision=?1, decided_at=?2
+                 WHERE task_id=?3 AND step=?4 AND decision='pending'",
+                params![decision, now.to_rfc3339(), task_id, step],
+            )
+            .map_err(map_err)?;
+        Ok(changed == 1)
+    }
+
+    /// An approval is good for one call. Consuming it twice is a no-op, so a
+    /// replayed step cannot reuse a spent permission.
+    pub fn consume_approval(&self, task_id: &str, step: i64, now: DateTime<Utc>) -> Result<bool> {
+        let conn = self.conn_guard()?;
+        let changed = conn
+            .execute(
+                "UPDATE approvals SET consumed_at=?1
+                 WHERE task_id=?2 AND step=?3 AND decision='allowed' AND consumed_at IS NULL",
+                params![now.to_rfc3339(), task_id, step],
+            )
+            .map_err(map_err)?;
+        Ok(changed == 1)
+    }
+
+    pub fn pending_approvals(&self) -> Result<Vec<ApprovalRow>> {
+        let conn = self.conn_guard()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, task_id, step, tool, risk, args_digest, prompt_json, decision,
+                        created_at, decided_at, consumed_at
+                 FROM approvals WHERE decision='pending' ORDER BY created_at",
+            )
+            .map_err(map_err)?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(ApprovalRow {
+                    id: r.get(0)?,
+                    task_id: r.get(1)?,
+                    step: r.get(2)?,
+                    tool: r.get(3)?,
+                    risk: r.get(4)?,
+                    args_digest: r.get(5)?,
+                    prompt_json: r.get(6)?,
+                    decision: r.get(7)?,
+                    created_at: parse_time(r.get::<_, String>(8)?),
+                    decided_at: r.get::<_, Option<String>>(9)?.map(parse_time),
+                    consumed_at: r.get::<_, Option<String>>(10)?.map(parse_time),
+                })
+            })
+            .map_err(map_err)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(map_err)?);
+        }
+        Ok(out)
+    }
+
+    pub fn record_artifact(&self, a: &ArtifactRow) -> Result<()> {
+        let conn = self.conn_guard()?;
+        conn.execute(
+            "INSERT INTO artifacts (id, task_id, path, kind, bytes, sha256, created_at)
+             VALUES (?1,?2,?3,?4,?5,?6,?7)",
+            params![
+                a.id,
+                a.task_id,
+                a.path,
+                a.kind,
+                a.bytes,
+                a.sha256,
+                a.created_at.to_rfc3339()
+            ],
+        )
+        .map_err(map_err)?;
+        Ok(())
+    }
+
+    pub fn artifacts_for_task(&self, task_id: &str) -> Result<Vec<ArtifactRow>> {
+        let conn = self.conn_guard()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, task_id, path, kind, bytes, sha256, created_at
+                 FROM artifacts WHERE task_id=?1 ORDER BY created_at",
+            )
+            .map_err(map_err)?;
+        let rows = stmt
+            .query_map(params![task_id], |r| {
+                Ok(ArtifactRow {
+                    id: r.get(0)?,
+                    task_id: r.get(1)?,
+                    path: r.get(2)?,
+                    kind: r.get(3)?,
+                    bytes: r.get(4)?,
+                    sha256: r.get(5)?,
+                    created_at: parse_time(r.get::<_, String>(6)?),
+                })
+            })
+            .map_err(map_err)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(map_err)?);
+        }
+        Ok(out)
+    }
+
+    pub fn set_pause_reason(&self, task_id: &str, reason: Option<&str>) -> Result<()> {
+        let conn = self.conn_guard()?;
+        conn.execute(
+            "UPDATE tasks SET pause_reason=?1 WHERE id=?2",
+            params![reason, task_id],
+        )
+        .map_err(map_err)?;
+        Ok(())
+    }
+
+    pub fn pause_reason(&self, task_id: &str) -> Result<Option<String>> {
+        let conn = self.conn_guard()?;
+        let row: Option<Option<String>> = conn
+            .query_row(
+                "SELECT pause_reason FROM tasks WHERE id=?1",
+                params![task_id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(map_err)?;
+        Ok(row.flatten())
+    }
+
+    /// Full-text search over message bodies. The index carries no copy of the
+    /// text, so the row is read back from `messages`.
+    pub fn search_messages(&self, query: &str, limit: usize) -> Result<Vec<MessageRow>> {
+        let conn = self.conn_guard()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT m.id, m.session_id, m.role, m.content, m.model, m.created_at, m.meta_json
+                 FROM messages_fts f JOIN messages m ON m.rowid = f.rowid
+                 WHERE messages_fts MATCH ?1 ORDER BY rank LIMIT ?2",
+            )
+            .map_err(map_err)?;
+        let rows = stmt
+            .query_map(params![query, limit as i64], |r| {
+                Ok(MessageRow {
+                    id: r.get(0)?,
+                    session_id: r.get(1)?,
+                    role: r.get(2)?,
+                    content: r.get(3)?,
+                    model: r.get(4)?,
+                    created_at: parse_time(r.get::<_, String>(5)?),
+                    meta_json: r.get(6)?,
+                })
+            })
+            .map_err(map_err)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(map_err)?);
+        }
+        Ok(out)
+    }
+
     pub fn checkpoint_wal(&self) -> Result<()> {
         let conn = self.conn_guard()?;
         conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
@@ -775,7 +995,7 @@ mod tests {
     #[test]
     fn migration_adds_the_columns_the_decisions_promised() {
         let s = mem();
-        assert_eq!(s.version().unwrap(), 2);
+        assert_eq!(s.version().unwrap(), 3);
         let conn = s.conn_guard().unwrap();
         let mut stmt = conn.prepare("PRAGMA table_info(tasks)").unwrap();
         let cols: Vec<String> = stmt
@@ -843,5 +1063,157 @@ mod tests {
             .is_empty());
         s.clear_waiting("t1").unwrap();
         assert_eq!(s.task("t1").unwrap().unwrap().waiting_since, None);
+    }
+
+    fn approval(task: &str, step: i64) -> ApprovalRow {
+        ApprovalRow {
+            id: uuid::Uuid::new_v4().to_string(),
+            task_id: task.to_string(),
+            step,
+            tool: "fs_write".into(),
+            risk: "write".into(),
+            args_digest: "d1".into(),
+            prompt_json: "{}".into(),
+            decision: "pending".into(),
+            created_at: Utc::now(),
+            decided_at: None,
+            consumed_at: None,
+        }
+    }
+
+    #[test]
+    fn migration_reaches_v3_and_adds_the_pause_reason() {
+        let s = mem();
+        assert_eq!(s.version().unwrap(), 3);
+        let conn = s.conn_guard().unwrap();
+        let mut stmt = conn.prepare("PRAGMA table_info(tasks)").unwrap();
+        let cols: Vec<String> = stmt
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert!(cols.iter().any(|c| c == "pause_reason"), "{cols:?}");
+    }
+
+    #[test]
+    fn migrating_twice_is_a_no_op() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("app.db");
+        let s = Store::open(&path).unwrap();
+        s.migrate().unwrap();
+        assert_eq!(s.version().unwrap(), 3);
+        s.close().unwrap();
+        let again = Store::open(&path).unwrap();
+        assert_eq!(again.version().unwrap(), 3);
+    }
+
+    #[test]
+    fn an_approval_is_decided_once_and_used_once() {
+        let s = mem();
+        s.upsert_task(&task_row("t1")).unwrap();
+        s.insert_approval(&approval("t1", 1)).unwrap();
+        assert_eq!(s.pending_approvals().unwrap().len(), 1);
+
+        let now = Utc::now();
+        assert!(s.decide_approval("t1", 1, true, now).unwrap());
+        assert!(
+            !s.decide_approval("t1", 1, false, now).unwrap(),
+            "a decided approval must not flip"
+        );
+        assert!(s.pending_approvals().unwrap().is_empty());
+
+        assert!(s.consume_approval("t1", 1, now).unwrap());
+        assert!(
+            !s.consume_approval("t1", 1, now).unwrap(),
+            "a spent approval cannot be spent twice"
+        );
+    }
+
+    #[test]
+    fn a_denied_approval_cannot_be_consumed() {
+        let s = mem();
+        s.upsert_task(&task_row("t1")).unwrap();
+        s.insert_approval(&approval("t1", 2)).unwrap();
+        let now = Utc::now();
+        assert!(s.decide_approval("t1", 2, false, now).unwrap());
+        assert!(!s.consume_approval("t1", 2, now).unwrap());
+    }
+
+    #[test]
+    fn asking_twice_about_the_same_step_keeps_one_row() {
+        let s = mem();
+        s.upsert_task(&task_row("t1")).unwrap();
+        s.insert_approval(&approval("t1", 3)).unwrap();
+        s.insert_approval(&approval("t1", 3)).unwrap();
+        assert_eq!(s.pending_approvals().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn artifacts_survive_a_reopen_and_stay_scoped_to_their_task() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("app.db");
+        let row = ArtifactRow {
+            id: uuid::Uuid::new_v4().to_string(),
+            task_id: "t1".into(),
+            path: "report.md".into(),
+            kind: "md".into(),
+            bytes: 12,
+            sha256: crate::security::sha256_hex(b"hello world\n"),
+            created_at: Utc::now(),
+        };
+        {
+            let s = Store::open(&path).unwrap();
+            s.upsert_task(&task_row("t1")).unwrap();
+            s.upsert_task(&task_row("t2")).unwrap();
+            s.record_artifact(&row).unwrap();
+            s.close().unwrap();
+        }
+        let s = Store::open(&path).unwrap();
+        let mine = s.artifacts_for_task("t1").unwrap();
+        assert_eq!(mine.len(), 1);
+        assert_eq!(mine[0].path, "report.md");
+        assert_eq!(mine[0].sha256, row.sha256);
+        assert!(s.artifacts_for_task("t2").unwrap().is_empty());
+    }
+
+    #[test]
+    fn full_text_search_finds_a_message_and_the_delete_trigger_clears_it() {
+        let s = mem();
+        let sid = s.insert_session("ask", Utc::now()).unwrap();
+        let m = MessageRow {
+            id: uuid::Uuid::new_v4().to_string(),
+            session_id: sid.clone(),
+            role: "user".into(),
+            content: "how do i export the quarterly spreadsheet".into(),
+            model: None,
+            created_at: Utc::now(),
+            meta_json: None,
+        };
+        s.append_message(&m).unwrap();
+        let hits = s.search_messages("quarterly", 10).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, m.id);
+        assert!(s.search_messages("nonexistentterm", 10).unwrap().is_empty());
+
+        {
+            let conn = s.conn_guard().unwrap();
+            conn.execute("DELETE FROM messages WHERE id=?1", [&m.id])
+                .unwrap();
+        }
+        assert!(
+            s.search_messages("quarterly", 10).unwrap().is_empty(),
+            "the delete trigger must remove the index entry"
+        );
+    }
+
+    #[test]
+    fn pause_reason_round_trips_and_clears() {
+        let s = mem();
+        s.upsert_task(&task_row("t1")).unwrap();
+        assert_eq!(s.pause_reason("t1").unwrap(), None);
+        s.set_pause_reason("t1", Some("缺少权限")).unwrap();
+        assert_eq!(s.pause_reason("t1").unwrap().as_deref(), Some("缺少权限"));
+        s.set_pause_reason("t1", None).unwrap();
+        assert_eq!(s.pause_reason("t1").unwrap(), None);
     }
 }

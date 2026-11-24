@@ -10,7 +10,7 @@ use crate::agent::{transition, Checkpoint, PendingCall, Task, TaskState};
 use crate::error::{Error, Result};
 use crate::memory::Memory;
 use crate::ports::{ChatMessage, ChatProvider, ChatRequest, Clock, Role};
-use crate::store::{StepRecord, Store, TaskRow, TaskStateUpdate};
+use crate::store::{ApprovalRow, ArtifactRow, StepRecord, Store, TaskRow, TaskStateUpdate};
 use crate::tools::policy::{Approval, Approvals, Policy, Risk};
 use crate::tools::{Registry, ToolCtx, ToolOutcome};
 use crate::usage::{MeterInput, UsageKind, UsageMeter};
@@ -360,6 +360,7 @@ impl TaskRunner {
                 task.checkpoint.pending_call = None;
                 let name = pending.name.clone();
                 let approved_outside = call.outside_workspace;
+                self.note_approval(task, &name, &pending.args, Some(true))?;
                 // An approval is one-shot: drop the grant before running so a
                 // failure cannot leave the permission lying around.
                 consume_grant(task, &pending.name, &pending.args);
@@ -368,6 +369,8 @@ impl TaskRunner {
                 self.after_tool(task, name, outcome)
             }
             Approval::Deny => {
+                let (name, pending_args) = (pending.name.clone(), pending.args.clone());
+                self.note_approval(task, &name, &pending_args, Some(false))?;
                 task.checkpoint.pending_call = None;
                 self.deps.store.record_step(&StepRecord {
                     task_id: task.id.clone(),
@@ -387,11 +390,15 @@ impl TaskRunner {
                     message: "用户拒绝，已改道".into(),
                 })
             }
-            Approval::Ask => Ok(StepOutcome {
-                state: task.state,
-                tool: Some(pending.name),
-                message: "等待批准".into(),
-            }),
+            Approval::Ask => {
+                let (name, pending_args) = (pending.name.clone(), pending.args.clone());
+                self.note_approval(task, &name, &pending_args, None)?;
+                Ok(StepOutcome {
+                    state: task.state,
+                    tool: Some(pending.name),
+                    message: "等待批准".into(),
+                })
+            }
         }
     }
 
@@ -416,6 +423,48 @@ impl TaskRunner {
             outside_workspace: outside,
             host_allowed,
         }
+    }
+
+    /// Mirrors every authorization decision into the approvals ledger. The
+    /// checkpoint still drives the UI; the table is what survives a restart and
+    /// what an audit can read later.
+    fn note_approval(
+        &self,
+        task: &Task,
+        name: &str,
+        args: &serde_json::Value,
+        allowed: Option<bool>,
+    ) -> Result<()> {
+        let now = self.deps.clock.now();
+        let step = task.steps_done;
+        if allowed.is_none() {
+            self.deps.store.insert_approval(&ApprovalRow {
+                id: uuid::Uuid::new_v4().to_string(),
+                task_id: task.id.clone(),
+                step,
+                tool: name.to_string(),
+                risk: self.deps.tools.risk_of(name, args).as_str().to_string(),
+                args_digest: crate::store::args_digest(args),
+                prompt_json: json!({
+                    "tool": name,
+                    "preview": crate::security::log_safe(&args.to_string(), 200),
+                })
+                .to_string(),
+                decision: "pending".into(),
+                created_at: now,
+                decided_at: None,
+                consumed_at: None,
+            })?;
+            return Ok(());
+        }
+        let allowed = allowed.unwrap_or(false);
+        self.deps
+            .store
+            .decide_approval(&task.id, step, allowed, now)?;
+        if allowed {
+            self.deps.store.consume_approval(&task.id, step, now)?;
+        }
+        Ok(())
     }
 
     /// Approval state for exactly one call. A grant only unblocks the tool and
@@ -530,6 +579,7 @@ impl TaskRunner {
                 });
             }
             Approval::Ask => {
+                self.note_approval(task, &name, &args, None)?;
                 task.checkpoint.pending_call = Some(PendingCall {
                     name: name.clone(),
                     args,
@@ -680,12 +730,27 @@ impl TaskRunner {
         let ctx = self.tool_ctx(task);
         let mut verified = 0;
         for a in &artifacts {
-            if crate::tools::fs::resolve_in_workspace(&ctx.workspace, a)
-                .map(|p| p.exists())
-                .unwrap_or(false)
-            {
-                verified += 1;
-            }
+            let Ok(path) = crate::tools::fs::resolve_in_workspace(&ctx.workspace, a) else {
+                continue;
+            };
+            let Ok(meta) = std::fs::metadata(&path) else {
+                continue;
+            };
+            verified += 1;
+            let sha256 = crate::security::sha256_file(&path).unwrap_or_default();
+            self.deps.store.record_artifact(&ArtifactRow {
+                id: uuid::Uuid::new_v4().to_string(),
+                task_id: task.id.clone(),
+                path: a.clone(),
+                kind: path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("")
+                    .to_string(),
+                bytes: meta.len() as i64,
+                sha256,
+                created_at: self.deps.clock.now(),
+            })?;
         }
         let (state, code) = if !artifacts.is_empty() && verified == artifacts.len() {
             (TaskState::Completed, None)

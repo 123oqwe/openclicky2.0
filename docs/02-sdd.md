@@ -581,8 +581,9 @@ CREATE TABLE tasks (
   waiting_since TEXT
 );
 CREATE INDEX idx_tasks_state ON tasks(state, updated_at);
--- 以下五个列由 M002 的 ALTER TABLE 追加，此处只画最终形状：
--- owner, retries, prompt_version, tool_schema_version, waiting_since
+-- 以下六个列由 M002 / M003 的 ALTER TABLE 追加，此处只画最终形状：
+-- owner, retries, prompt_version, tool_schema_version, waiting_since（M002）
+-- pause_reason（M003）
 
 CREATE TABLE task_steps (
   id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -620,6 +621,40 @@ CREATE TABLE dict_entries (
 CREATE UNIQUE INDEX idx_task_steps_unique ON task_steps(task_id, step);
 CREATE INDEX idx_routines_next ON routines(next_run_at);
 CREATE INDEX idx_usage_task ON usage_events(task_id);
+
+-- M003：批准账本与产物归属。两者都是“重启后还能回答”的记录，
+-- 不能只活在任务的 checkpoint JSON 里。
+CREATE TABLE approvals (
+  id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  step INTEGER NOT NULL, tool TEXT NOT NULL, risk TEXT NOT NULL,
+  args_digest TEXT NOT NULL, prompt_json TEXT NOT NULL,
+  decision TEXT NOT NULL DEFAULT 'pending',
+  created_at TEXT NOT NULL, decided_at TEXT, consumed_at TEXT
+);
+CREATE UNIQUE INDEX idx_approvals_step ON approvals(task_id, step);
+CREATE INDEX idx_approvals_open ON approvals(decision, created_at);
+
+CREATE TABLE artifacts (
+  id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  path TEXT NOT NULL, kind TEXT NOT NULL, bytes INTEGER NOT NULL,
+  sha256 TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE INDEX idx_artifacts_task ON artifacts(task_id);
+
+-- 外部内容表：正文只在 messages 里存一份，索引单独保存，删除随行级联。
+CREATE VIRTUAL TABLE messages_fts USING fts5(
+  content, content='messages', content_rowid='rowid', tokenize='unicode61'
+);
+CREATE TRIGGER messages_ai AFTER INSERT ON messages BEGIN
+  INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
+END;
+CREATE TRIGGER messages_ad AFTER DELETE ON messages BEGIN
+  INSERT INTO messages_fts(messages_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
+END;
+CREATE TRIGGER messages_au AFTER UPDATE ON messages BEGIN
+  INSERT INTO messages_fts(messages_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
+  INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
+END;
 ```
 
 数据字典（关键字段语义）：

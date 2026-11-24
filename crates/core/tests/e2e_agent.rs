@@ -110,6 +110,16 @@ fn writes_a_file_then_finishes_with_evidence() {
     let path = c.runner.tool_ctx(&t).workspace.join("notes/out.txt");
     assert!(path.exists());
     assert_eq!(std::fs::read_to_string(path).unwrap(), "hello");
+
+    let artifacts = c.store.artifacts_for_task(&task.id).unwrap();
+    assert_eq!(artifacts.len(), 1, "{artifacts:?}");
+    assert_eq!(artifacts[0].path, "notes/out.txt");
+    assert_eq!(artifacts[0].kind, "txt");
+    assert_eq!(artifacts[0].bytes, 5);
+    assert_eq!(
+        artifacts[0].sha256,
+        openclicky_core::security::sha256_hex(b"hello")
+    );
 }
 
 #[test]
@@ -154,11 +164,20 @@ fn approval_lets_the_action_run_once() {
     c.runner.step(&task.id).unwrap();
     let outcome = c.runner.step(&task.id).unwrap();
     assert_eq!(outcome.state, TaskState::WaitingApproval);
+    assert_eq!(
+        c.store.pending_approvals().unwrap().len(),
+        1,
+        "a waiting call is a durable ledger row, not only checkpoint state"
+    );
     c.runner.approve(&task.id).unwrap();
     let outcome = c.runner.step(&task.id).unwrap();
     assert_eq!(outcome.tool.as_deref(), Some("fs_delete"));
     let t = c.runner.get(&task.id).unwrap();
     assert!(!c.runner.tool_ctx(&t).workspace.join("b.txt").exists());
+    assert!(
+        c.store.pending_approvals().unwrap().is_empty(),
+        "the granted call is no longer pending"
+    );
 }
 
 #[test]
