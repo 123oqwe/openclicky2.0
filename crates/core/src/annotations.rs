@@ -70,15 +70,32 @@ pub struct ParsedReply {
 }
 
 /// Map a screenshot pixel coordinate to the global logical desktop.
-pub fn to_global(display: &DisplayInfo, x_px: f64, y_px: f64) -> Point {
+/// Model pictures are downscaled before they are sent (ADR-0003 / TR-12): the
+/// long edge is at most 1280 px. Coordinates in a reply are pixels of *that*
+/// image, so the conversion has to undo both the screen scale and the shrink.
+pub const PICTURE_MAX_EDGE: f64 = 1280.0;
+
+/// How much a display's physical pixels were shrunk for the model.
+pub fn picture_shrink(display: &DisplayInfo) -> f64 {
+    let longest = display.width_px().max(display.height_px()) as f64;
+    if longest <= PICTURE_MAX_EDGE || longest <= 0.0 {
+        1.0
+    } else {
+        PICTURE_MAX_EDGE / longest
+    }
+}
+
+pub fn to_global(display: &DisplayInfo, x_picture: f64, y_picture: f64) -> Point {
     let scale = if display.scale > 0.0 {
         display.scale
     } else {
         1.0
     };
+    // picture px -> physical px -> logical px
+    let to_logical = |v: f64| v / (scale * picture_shrink(display));
     Point::new(
-        display.origin_x + x_px / scale,
-        display.origin_y + y_px / scale,
+        display.origin_x + to_logical(x_picture),
+        display.origin_y + to_logical(y_picture),
     )
 }
 
@@ -275,8 +292,9 @@ fn parse_tag(tag: &str, displays: &[DisplayInfo], cursor: usize) -> TagResult {
         let label = parts.get(1).map(|s| sanitize_label(s)).unwrap_or_default();
         let (screen, _fell_back) = resolve_screen(parts.get(2).copied(), displays, cursor);
         if let Some(d) = displays.get(screen) {
-            let x = clamp_px(x, d.width_px() as f64);
-            let y = clamp_px(y, d.height_px() as f64);
+            let shrink = picture_shrink(d);
+            let x = clamp_px(x, d.width_px() as f64 * shrink);
+            let y = clamp_px(y, d.height_px() as f64 * shrink);
             let ann = Annotation {
                 screen,
                 kind: AnnotationKind::Point {
@@ -335,15 +353,16 @@ fn parse_tag(tag: &str, displays: &[DisplayInfo], cursor: usize) -> TagResult {
                 Shape::Circle { cx, cy, r } => (cx - r, cy - r),
                 _ => (0.0, 0.0),
             };
+            let shrink = picture_shrink(d);
             let tl = to_global(
                 d,
-                clamp_px(origin.0, d.width_px() as f64),
-                clamp_px(origin.1, d.height_px() as f64),
+                clamp_px(origin.0, d.width_px() as f64 * shrink),
+                clamp_px(origin.1, d.height_px() as f64 * shrink),
             );
             let br = to_global(
                 d,
-                clamp_px(mx, d.width_px() as f64),
-                clamp_px(my, d.height_px() as f64),
+                clamp_px(mx, d.width_px() as f64 * shrink),
+                clamp_px(my, d.height_px() as f64 * shrink),
             );
             let target = Rect::new(
                 tl.x,
@@ -763,8 +782,9 @@ mod tests {
         let AnnotationKind::Point { x_px, y_px, .. } = &p.annotations[0].kind else {
             panic!("expected point");
         };
-        assert_eq!(*x_px, d[0].width_px() as f64);
-        assert_eq!(*y_px, d[0].height_px() as f64);
+        // Picture pixels, not physical: 2880x1800 shrinks to 1280x800.
+        assert_eq!(*x_px, 1280.0);
+        assert_eq!(*y_px, 800.0);
     }
 
     #[test]
@@ -795,8 +815,9 @@ mod tests {
         let s = &p.steps[0];
         assert_eq!(s.n, 1);
         assert_eq!(s.label, "open menu");
-        assert!((s.target.x - 50.0).abs() < 0.6, "x {}", s.target.x);
-        assert!((s.target.w - 40.0).abs() < 0.6, "w {}", s.target.w);
+        // 2880x1800 -> 1280x800 (shrink .4444) at scale 2 => *1.125
+        assert!((s.target.x - 112.5).abs() < 0.6, "x {}", s.target.x);
+        assert!((s.target.w - 90.0).abs() < 0.6, "w {}", s.target.w);
     }
 
     #[test]
@@ -817,6 +838,20 @@ mod tests {
         let plan = plan_from(&p, &d, "plan-1").unwrap();
         assert!(plan.items.len() <= MAX_ANNOTATIONS);
         assert!(!plan.items[0].strokes.is_empty());
+    }
+
+    #[test]
+    fn picture_shrink_matches_the_capture_rule() {
+        let d = displays();
+        assert!((picture_shrink(&d[0]) - 1280.0 / 2880.0).abs() < 1e-9);
+        assert!((picture_shrink(&d[1]) - 1280.0 / 1920.0).abs() < 1e-9);
+        let small = DisplayInfo {
+            width: 1280.0,
+            height: 720.0,
+            scale: 1.0,
+            ..d[1].clone()
+        };
+        assert_eq!(picture_shrink(&small), 1.0, "no shrink below the limit");
     }
 
     #[test]

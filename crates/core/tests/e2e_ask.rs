@@ -26,11 +26,12 @@ fn asks_answers_points_and_charges_once() {
     assert_eq!(outcome.answer_text, "点了它会导出视频。");
     assert!(!outcome.answer_text.contains("POINT"));
 
-    // Screen coordinates: 200/2, 100/2 on the built-in display.
+    // Picture 1280 wide for a 2880-physical display at scale 2, so
+    // 200 picture px => 200 / (2 * 0.4444) = 225 logical px.
     let plan = &h.overlay.shown.lock().unwrap()[0];
     let target = plan.items[0].target.unwrap();
-    assert!((target.x - 100.0).abs() < 0.6, "x was {}", target.x);
-    assert!((target.y - 50.0).abs() < 0.6, "y was {}", target.y);
+    assert!((target.x - 225.0).abs() < 0.8, "x was {}", target.x);
+    assert!((target.y - 112.5).abs() < 0.8, "y was {}", target.y);
     assert_eq!(plan.items[0].label.as_deref(), Some("export"));
 
     // Speakable text only.
@@ -166,8 +167,9 @@ fn pointing_on_a_negative_origin_display_uses_the_right_offset() {
     engine.on_hotkey_up().unwrap();
     let plan = &h.overlay.shown.lock().unwrap()[0];
     let t = plan.items[0].target.unwrap();
-    assert!((t.x - (-1920.0 + 100.0)).abs() < 0.6, "x was {}", t.x);
-    assert!((t.y - 100.0).abs() < 0.6);
+    // 1920-physical display shrinks to 1280 (x1.5), origin -1920.
+    assert!((t.x - (-1770.0)).abs() < 0.8, "x was {}", t.x);
+    assert!((t.y - 150.0).abs() < 0.8, "y was {}", t.y);
 }
 
 #[test]
