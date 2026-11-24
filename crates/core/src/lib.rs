@@ -32,7 +32,8 @@ pub mod walkthrough;
 pub use error::{Error, Permission, Result};
 
 /// Event stream emitted by the orchestrator towards the UI shell.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(tag = "kind", content = "data")]
 pub enum AppEvent {
     State(voice::State),
     Transcript {

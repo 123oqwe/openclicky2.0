@@ -20,7 +20,7 @@ use crate::store::{MessageRow, Turn, UsageRow};
 use crate::usage::{MeterInput, UsageKind};
 use crate::AppEvent;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum State {
     Idle,
     Listening,
@@ -75,6 +75,10 @@ impl VoiceEngine {
             state: Mutex::new(State::Idle),
             cancel: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    pub fn usage_meter(&self) -> &Arc<crate::usage::UsageMeter> {
+        &self.deps.usage
     }
 
     pub fn state(&self) -> State {
