@@ -58,7 +58,8 @@ ROWS = [
   "当前用例不构造 199ms 音频，F3 补"),
  ("TC-ANNO-001", "POINT 解析与剥离标签", "TC-ANNO-001…006", "已实现",
   "crates/core/tests/e2e_ask.rs::asks_answers_points_and_charges_once", "13 条细项见 spec-only"),
- ("TC-ANNO-002", "越界裁剪/坏标签丢弃/多形状", "TC-ANNO-007…013", "spec-only", "-", "F3 补"),
+ ("TC-ANNO-002", "越界裁剪/坏标签丢弃/多形状", "TC-ANNO-002", "已实现",
+  "crates/core/src/annotations.rs::parses_every_draw_shape", "另有 9 条同模块单测"),
  ("TC-GEST-001", "按住期间鼠标轨迹并入参考图", "TC-GEST-001", "spec-only", "-", "轨迹采集未实现"),
  ("TC-WALK-001", "命中推进/点偏释放", "TC-WALK-001", "已实现",
   "crates/core/src/walkthrough.rs::hit_advances_and_miss_releases", ""),
@@ -75,8 +76,7 @@ ROWS = [
  ("TC-DICT-002", "终端只注入单行", "TC-DICT-002", "已实现",
   "crates/core/tests/e2e_dictation.rs::terminal_targets_get_a_single_line", ""),
  ("TC-DICT-003", "疑似密码不注入", "TC-DICT-003", "已实现",
-  "crates/core/tests/e2e_dictation.rs::password_like_speech_is_not_injected",
-  "tick 阶段守卫待 F3"),
+  "crates/core/tests/e2e_dictation.rs::tick_refuses_password_like_speech", "tick 与 finish 都过守卫"),
  ("TC-DICT-004", "词典学习与复用", "TC-DICT-004", "已实现",
   "crates/core/tests/e2e_dictation.rs::corrections_are_learned_and_reused", ""),
  ("TC-DICT-005", "学习窗口关闭", "TC-DICT-005", "已实现",
@@ -93,9 +93,8 @@ ROWS = [
   "crates/core/src/usage.rs::daily_reset_clears_usage", ""),
  ("TC-USE-005", "当日提额解除阻断", "TC-USE-005", "已实现",
   "crates/core/src/usage.rs::temporary_grant_unblocks_today", "月度提额待 F3"),
- ("TC-USE-006", "长任务只计一次", "TC-USE-006", "部分",
-  "crates/core/src/usage.rs::long_running_task_is_charged_once",
-  "runner 只发 AgentStep，生产路径不可达（F3）"),
+ ("TC-USE-006", "长任务只计一次", "TC-USE-006", "已实现",
+  "crates/core/src/usage.rs::agent_steps_after_twenty_minutes_are_waived", "runner 在 20 分钟后豁免后续回合"),
  ("TC-AGT-001", "写文件后带证据完成", "TC-AGT-001", "已实现",
   "crates/core/tests/e2e_agent.rs::writes_a_file_then_finishes_with_evidence", ""),
  ("TC-AGT-002", "拒绝后不执行且 30 分钟内不问", "TC-AGT-002", "部分",
@@ -168,16 +167,16 @@ ROWS = [
  ("TC-SEC-005", "注入守卫（终端/密码）", "TC-SEC-005", "部分",
   "crates/core/tests/e2e_dictation.rs::terminal_targets_get_a_single_line",
   "密码路径只在 finish 生效（F3）"),
- ("TC-SEC-006", "删除逐表报告", "TC-SEC-006", "部分",
-  "crates/core/tests/security.rs::deleting_everything_reports_each_table",
-  "只删 DB 行，文件/钥匙串/日志未删（F3）"),
- ("TC-APP-001", "单实例锁", "TC-APP-001", "spec-only", "-", "F3 补"),
+ ("TC-SEC-006", "删除逐表报告", "TC-SEC-006", "已实现",
+  "crates/core/src/deletion.rs::removes_every_local_artifact_and_reports_it", "八步 + 范围外声明"),
+ ("TC-APP-001", "单实例锁", "TC-APP-001", "已实现",
+  "crates/platform/src/singleton.rs::second_instance_is_refused", ""),
  ("TC-APP-002", "更新包验签", "TC-APP-002", "spec-only", "-", "桌面外壳落地后补"),
 ]
 
 def tests_on_branch(branch):
     names = {}
-    out = subprocess.run(["git", "ls-tree", "-r", "--name-only", branch, "crates/core"],
+    out = subprocess.run(["git", "ls-tree", "-r", "--name-only", branch, "crates"],
                          cwd=ROOT, capture_output=True, text=True).stdout.split()
     for path in out:
         if not path.endswith(".rs"):
