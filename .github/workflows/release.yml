@@ -3,6 +3,7 @@ name: release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -43,6 +44,56 @@ jobs:
           # record provenance so an artifact can be traced to a commit
           git rev-parse HEAD > dist/COMMIT
           git describe --tags --always >> dist/COMMIT
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/
+
+  desktop:
+    name: desktop-${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            bundles: app,dmg
+            artifact: openclicky-desktop-macos
+          - os: windows-latest
+            bundles: nsis
+            artifact: openclicky-desktop-windows
+          - os: ubuntu-latest
+            bundles: appimage,deb
+            artifact: openclicky-desktop-linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: System deps (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+            libsoup-3.0-dev libssl-dev libasound2-dev libxcb1-dev libxrandr-dev pkg-config
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install tauri CLI
+        run: npm install -g @tauri-apps/cli@^2
+      - name: Bundle
+        working-directory: apps/desktop
+        run: tauri build --bundles ${{ matrix.bundles }}
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          mkdir -p dist
+          find apps/desktop/target/release/bundle -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.msi' -o -name '*.AppImage' -o -name '*.deb' \) -exec cp {} dist/ \; 2>/dev/null || true
+          if [ -d "apps/desktop/target/release/bundle/macos/OpenClicky.app" ]; then
+            (cd apps/desktop/target/release/bundle/macos && zip -qr "$GITHUB_WORKSPACE/dist/OpenClicky.app.zip" OpenClicky.app)
+          fi
+          git rev-parse HEAD > dist/COMMIT
+          git describe --tags --always >> dist/COMMIT
+          ls -la dist
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
