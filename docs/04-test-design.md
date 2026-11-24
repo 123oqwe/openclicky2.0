@@ -36,14 +36,14 @@
 | spec-only | 还没有对应测试 | 计未执行 |
 
 <!-- TDS-MATRIX:BEGIN -->
-共 72 条：已实现 69、部分 1、spec-only 2。**只有 `已实现` 才能在执行报告中计入通过；`部分` 与 `spec-only` 一律计入未执行/未覆盖。**
+共 72 条：已实现 70、部分 0、spec-only 2。**只有 `已实现` 才能在执行报告中计入通过；`部分` 与 `spec-only` 一律计入未执行/未覆盖。**
 
 | 用例 | 要求 | TC | 状态 | 证据（真实测试） | 备注 |
 |---|---|---|---|---|---|
 | TC-PRIV-001 | INV-1 不按键不采集 | TC-PRIV-001 | **已实现** | `crates/core/tests/security.rs::no_capture_without_a_gate` | — |
 | TC-PRIV-002 | 门禁只由用户动作开启 | TC-PRIV-002 | **已实现** | `crates/core/tests/security.rs::capture_gate_counts_only_user_actions` | — |
 | TC-CAP-001 | 一次提问只采集一次 | TC-CAP-001 | **已实现** | `crates/core/tests/e2e_ask.rs::capture_happens_exactly_once_per_question` | — |
-| TC-CAP-002 | 副屏负原点坐标换算 | TC-CAP-002 | **已实现** | `crates/core/tests/e2e_ask.rs::pointing_on_a_negative_origin_display_uses_the_right_offset` | 按图片比例的换算待 F3 |
+| TC-CAP-002 | 副屏负原点坐标换算（按图片比例） | TC-CAP-002 | **已实现** | `crates/core/tests/e2e_ask.rs::pointing_on_a_negative_origin_display_uses_the_right_offset` | 缩比在 annotations::picture_shrink 中锁定 |
 | TC-HK-001 | 默认 talk 键解析 | TC-HK-001 | **已实现** | `crates/core/src/hotkey.rs::parses_mac_default_talk_binding` | — |
 | TC-HK-002 | 别名归一（ctrl/option） | TC-HK-002 | **已实现** | `crates/core/src/hotkey.rs::parses_aliases` | — |
 | TC-HK-003 | 听写键含 Fn | TC-HK-003 | **已实现** | `crates/core/src/hotkey.rs::parses_dictation_with_fn` | — |
@@ -108,7 +108,7 @@
 | TC-SEC-002 | 行内密钥识别 | TC-SEC-002 | **已实现** | `crates/core/tests/security.rs::secret_detection_catches_inline_keys` | — |
 | TC-SEC-003 | 沙箱拒绝 ../绝对路径/符号链接 | TC-SEC-003 | **已实现** | `crates/core/src/tools/fs.rs::rejects_symlink_escape` | 另有 3 条同模块单测 |
 | TC-SEC-004 | SSRF 拒绝内网（含简写形式） | TC-SEC-004 | **已实现** | `crates/core/src/tools/net.rs::blocks_shorthand_ipv4_forms` | 另有 5 条同模块用例 |
-| TC-SEC-005 | 注入守卫（终端/密码） | TC-SEC-005 | **部分** | `crates/core/tests/e2e_dictation.rs::terminal_targets_get_a_single_line` | 密码路径只在 finish 生效（F3） |
+| TC-SEC-005 | 注入守卫（终端/密码） | TC-SEC-005 | **已实现** | `crates/core/tests/e2e_dictation.rs::tick_refuses_password_like_speech` | 终端单行见 terminal_targets_get_a_single_line |
 | TC-SEC-006 | 删除逐表报告 | TC-SEC-006 | **已实现** | `crates/core/src/deletion.rs::removes_every_local_artifact_and_reports_it` | 八步 + 范围外声明 |
 | TC-APP-001 | 单实例锁 | TC-APP-001 | **已实现** | `crates/platform/src/singleton.rs::second_instance_is_refused` | — |
 | TC-APP-002 | 更新包验签 | TC-APP-002 | **spec-only** | — | 桌面外壳落地后补 |
