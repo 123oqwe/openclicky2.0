@@ -463,7 +463,7 @@ release → final transcribe → tail-correct(20s) → cleanup → dict-learning
 | 音频 | `cpal` | rodio（只播放） | 低 | 未验证（H-3） |
 | 存储 | `rusqlite` bundled | sled/JSON（无 SQL） | 低 | 实现中（feat/impl） |
 | HTTP | `ureq`+rustls | reqwest（异步重） | 低 | 实现中（feat/impl，协议级假实现测过） |
-| 前端 | TS + Vite 无框架 | React（依赖多） | 低 | **未实现** |
+| 前端 | 原生 HTML/TS + Tauri IPC（无框架） | React（依赖多） | 低 | 实现中（feat/impl：单页 UI + overlay） |
 | 密钥 | `keyring` | 加密文件 | 低 | 未验证（H-5） |
 
 **依赖边界**：每个依赖的许可（MIT/Apache-2.0）、数据处理位置、失败方式、替代路线记录在 `THIRD_PARTY.md`（实现阶段生成）。
