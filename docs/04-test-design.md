@@ -36,7 +36,7 @@
 | spec-only | 还没有对应测试 | 计未执行 |
 
 <!-- TDS-MATRIX:BEGIN -->
-共 72 条：已实现 54、部分 7、spec-only 11。**只有 `已实现` 才能在执行报告中计入通过；`部分` 与 `spec-only` 一律计入未执行/未覆盖。**
+共 72 条：已实现 61、部分 7、spec-only 4。**只有 `已实现` 才能在执行报告中计入通过；`部分` 与 `spec-only` 一律计入未执行/未覆盖。**
 
 | 用例 | 要求 | TC | 状态 | 证据（真实测试） | 备注 |
 |---|---|---|---|---|---|
@@ -97,13 +97,13 @@
 | TC-MEM-003 | 项目记忆压缩 | TC-MEM-003 | **已实现** | `crates/core/src/memory.rs::projects_are_compacted` | — |
 | TC-MEM-004 | 遗忘删除匹配行 | TC-MEM-004 | **已实现** | `crates/core/src/memory.rs::forget_removes_matching_lines_everywhere` | — |
 | TC-RTE-001 | 快/深路由表 | TC-RTE-001 | **已实现** | `crates/core/src/router.rs::tasks_are_always_deep` | 另有 5 条同模块单测 |
-| TC-PRV-001 | OpenAI 文本/工具解析 | TC-PRV-001 | **spec-only** | — | providers 层待重建（F3） |
-| TC-PRV-002 | 流式增量 | TC-PRV-002 | **spec-only** | — | 同上 |
-| TC-PRV-003 | 请求带图与 tools | TC-PRV-003 | **spec-only** | — | 同上 |
-| TC-PRV-004 | Anthropic 工具块 | TC-PRV-004 | **spec-only** | — | 同上 |
-| TC-PRV-005 | Anthropic 流式 | TC-PRV-005 | **spec-only** | — | 同上 |
-| TC-ERR-001 | 错误码映射 | TC-ERR-001 | **spec-only** | — | 同上 |
-| TC-ERR-002 | 无 key 报 E_NO_KEY | TC-ERR-002 | **spec-only** | — | 同上 |
+| TC-PRV-001 | OpenAI 文本/工具解析 | TC-PRV-001 | **已实现** | `crates/core/tests/providers.rs::openai_parses_text_tools_and_usage` | — |
+| TC-PRV-002 | 流式增量 | TC-PRV-002 | **已实现** | `crates/core/tests/providers.rs::openai_stream_accumulates_deltas` | — |
+| TC-PRV-003 | 请求带图与 tools | TC-PRV-003 | **已实现** | `crates/core/tests/providers.rs::openai_request_carries_images_and_tools` | — |
+| TC-PRV-004 | Anthropic 工具块 | TC-PRV-004 | **已实现** | `crates/core/tests/providers.rs::anthropic_parses_tool_use` | — |
+| TC-PRV-005 | Anthropic 流式 | TC-PRV-005 | **已实现** | `crates/core/tests/providers.rs::anthropic_stream_reads_deltas` | — |
+| TC-ERR-001 | 错误码映射 | TC-ERR-001 | **已实现** | `crates/core/tests/providers.rs::error_statuses_map_to_stable_codes` | — |
+| TC-ERR-002 | 无 key 报 E_NO_KEY | TC-ERR-002 | **已实现** | `crates/core/tests/providers.rs::build_requires_a_key` | — |
 | TC-SEC-001 | 密钥脱敏 | TC-SEC-001 | **已实现** | `crates/core/tests/security.rs::credentials_are_redacted_from_logs` | — |
 | TC-SEC-002 | 行内密钥识别 | TC-SEC-002 | **已实现** | `crates/core/tests/security.rs::secret_detection_catches_inline_keys` | — |
 | TC-SEC-003 | 沙箱拒绝 ../绝对路径/符号链接 | TC-SEC-003 | **已实现** | `crates/core/src/tools/fs.rs::rejects_symlink_escape` | 另有 3 条同模块单测 |
