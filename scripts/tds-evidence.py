@@ -191,10 +191,19 @@ def main():
               f"`部分` 与 `spec-only` 一律计入未执行/未覆盖。**\n")
     table = ("| 用例 | 要求 | TC | 状态 | 证据（真实测试） | 备注 |\n"
              "|---|---|---|---|---|---|\n" + "\n".join(lines) + "\n")
-    path = ROOT / "docs" / "tds-matrix.generated.md"
-    path.write_text(header + "\n" + table, encoding="utf-8")
+    # Inject into the document itself: one source of truth, no copy to drift.
+    doc_path = ROOT / "docs" / "04-test-design.md"
+    doc = doc_path.read_text(encoding="utf-8")
+    begin = "<!-- TDS-MATRIX:BEGIN -->"
+    end = "<!-- TDS-MATRIX:END -->"
+    if begin not in doc or end not in doc:
+        print("markers missing in docs/04-test-design.md")
+        return 1
+    head, rest = doc.split(begin, 1)
+    _, tail = rest.split(end, 1)
+    doc_path.write_text(head + begin + "\n" + header + "\n" + table + end + tail, encoding="utf-8")
     print(header)
-    print(f"wrote {path}")
+    print("injected into docs/04-test-design.md")
     return 0
 
 if __name__ == "__main__":

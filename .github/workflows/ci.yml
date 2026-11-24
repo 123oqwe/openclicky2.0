@@ -28,6 +28,12 @@ jobs:
         run: python3 scripts/criteria-coverage.py
       - name: Substance check
         run: python3 scripts/doc-audit.py
+      - name: Cross-references (section, ADR id, path)
+        run: python3 scripts/ref-check.py
+      - name: TDS matrix is generated and current
+        run: |
+          python3 scripts/tds-evidence.py
+          git diff --exit-code -- docs/04-test-design.md
 
   prepare:
     name: prepare
