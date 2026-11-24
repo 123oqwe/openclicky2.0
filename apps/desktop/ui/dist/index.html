@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <title>OpenClicky</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin:0; font: 14px/1.6 -apple-system, system-ui, sans-serif; background:#141414; color:#eee;
+           display:grid; grid-template-columns: 1fr 1fr; gap:0; height:100vh; }
+    section { padding:18px 20px; overflow:auto; }
+    section + section { border-left:1px solid #2a2a2a; }
+    h1 { font-size:16px; margin:0 0 4px; }
+    .muted { color:#888; font-size:12px; }
+    input, button { font:inherit; }
+    input { width:100%; padding:8px 10px; border-radius:8px; border:1px solid #333; background:#1d1d1d; color:#eee; }
+    button { padding:8px 12px; border-radius:8px; border:1px solid #333; background:#222; color:#eee; cursor:pointer; }
+    button:hover { background:#2a2a2a; }
+    .row { display:flex; gap:8px; margin-top:8px; }
+    .card { border:1px solid #2a2a2a; border-radius:10px; padding:10px 12px; margin-top:10px; background:#191919; }
+    .state { display:inline-block; padding:2px 8px; border-radius:999px; background:#2a2a2a; font-size:12px; }
+    pre { white-space:pre-wrap; margin:6px 0 0; font: inherit; }
+  </style>
+</head>
+<body>
+  <section>
+    <h1>OpenClicky</h1>
+    <div class="muted" id="status">加载中…</div>
+    <div class="row">
+      <input id="q" placeholder="问点什么，或按住 Ctrl+Alt+Space 说话" />
+      <button id="send">发送</button>
+    </div>
+    <div class="card"><div class="muted">回答</div><pre id="answer">—</pre></div>
+    <div class="row">
+      <button id="selftest">抓屏自检</button>
+      <button id="refresh">刷新状态</button>
+    </div>
+    <div class="card"><div class="muted">用量</div><pre id="usage">—</pre></div>
+  </section>
+  <section>
+    <h1>任务</h1>
+    <div class="muted">G2 验收需要的证据会出现在这里</div>
+    <div id="tasks"></div>
+  </section>
+  <script type="module">
+    const T = window.__TAURI__;
+    const invoke = T.core.invoke;
+    const listen = T.event.listen;
+    const $ = (id) => document.getElementById(id);
+
+    async function refresh() {
+      try {
+        const s = await invoke('app_state');
+        $('status').textContent = `${s.state} · ${s.model || '未选择模型'} · ${s.data_dir}`;
+        const u = await invoke('usage');
+        $('usage').textContent = `今日 ${u.daily_used.toFixed(1)}/${u.daily_limit} (${u.percent.toFixed(0)}%)${u.blocked ? ' · 已阻断' : ''}`;
+        const tasks = await invoke('tasks');
+        $('tasks').innerHTML = tasks.length
+          ? tasks.map(t => `<div class="card"><b>${t.name}</b> <span class="state">${t.state}</span><pre>${t.result ?? ''}</pre></div>`).join('')
+          : '<div class="muted">还没有任务</div>';
+      } catch (e) { $('status').textContent = String(e); }
+    }
+
+    $('send').onclick = async () => {
+      const text = $('q').value.trim();
+      if (!text) return;
+      $('answer').textContent = '…';
+      try { $('answer').textContent = await invoke('ask_text', { text }); }
+      catch (e) { $('answer').textContent = String(e); }
+      refresh();
+    };
+    $('q').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('send').click(); });
+    $('refresh').onclick = refresh;
+    $('selftest').onclick = async () => {
+      try { $('answer').textContent = JSON.stringify(await invoke('selftest'), null, 2); }
+      catch (e) { $('answer').textContent = String(e); }
+    };
+
+    await listen('answer', (e) => { $('answer').textContent = e.payload; refresh(); });
+    await listen('error', (e) => { $('answer').textContent = e.payload; });
+    await listen('app-event', (e) => {
+      if (e.payload?.kind === 'State') $('status').textContent = e.payload.data;
+    });
+    refresh();
+  </script>
+</body>
+</html>
