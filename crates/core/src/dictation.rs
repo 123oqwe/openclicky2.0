@@ -166,6 +166,13 @@ impl DictationEngine {
         if suffix.trim().is_empty() {
             return Ok(None);
         }
+        if looks_secret(&text) {
+            self.deps.emit(AppEvent::Notice {
+                code: "E_SECRET".into(),
+                message: "这段话看起来包含密码或验证码，我不会代填。".into(),
+            });
+            return Ok(None);
+        }
         let target = self.deps.injector.focused();
         let kind = target
             .as_ref()

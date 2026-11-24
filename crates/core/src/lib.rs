@@ -8,6 +8,7 @@ pub mod agent;
 pub mod annotations;
 pub mod clock;
 pub mod config;
+pub mod deletion;
 pub mod deps;
 pub mod dictation;
 pub mod error;

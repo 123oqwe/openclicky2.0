@@ -115,20 +115,15 @@ impl UsageMeter {
 
     /// Waiver rules: 10 second cancel, long task continuation, approvals.
     pub fn is_waived(&self, input: &MeterInput) -> bool {
+        let elapsed_ms = input
+            .now
+            .signed_duration_since(input.started_at)
+            .num_milliseconds();
         match input.kind {
-            UsageKind::AgentTask => {
-                let elapsed = input
-                    .now
-                    .signed_duration_since(input.started_at)
-                    .num_milliseconds();
-                if (0..10_000).contains(&elapsed) {
-                    return true; // SRC-PRD H3: stopped within 10s costs nothing
-                }
-                if input.task_already_charged {
-                    return true; // long task keeps a single charge
-                }
-                false
-            }
+            // H3: stopped within 10s costs nothing; a long task keeps one charge.
+            UsageKind::AgentTask => (0..10_000).contains(&elapsed_ms) || input.task_already_charged,
+            // H10 / SDD §4.8: beyond 20 minutes further turns are free.
+            UsageKind::AgentStep => input.task_already_charged && elapsed_ms > 20 * 60 * 1000,
             _ => false,
         }
     }
@@ -310,6 +305,22 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert!(rows[0].waived);
         assert_eq!(unpaid_units(&rows), 0.0);
+    }
+
+    #[test]
+    fn agent_steps_after_twenty_minutes_are_waived() {
+        let (_s, clock, m) = meter();
+        let started = clock.now();
+        clock.advance_minutes(21);
+        let input = MeterInput {
+            kind: UsageKind::AgentStep,
+            task_id: Some("t3".into()),
+            session_id: None,
+            started_at: started,
+            now: clock.now(),
+            task_already_charged: true,
+        };
+        assert_eq!(m.meter(&input).unwrap(), 0.0);
     }
 
     #[test]

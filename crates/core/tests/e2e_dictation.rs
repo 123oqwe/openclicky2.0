@@ -84,3 +84,20 @@ fn learning_window_closes_after_finish() {
         "no learning outside a session"
     );
 }
+
+#[test]
+fn tick_refuses_password_like_speech() {
+    let h = harness(HarnessOpts {
+        transcript: "my password is hunter2".into(),
+        ..Default::default()
+    });
+    let engine = DictationEngine::new(h.deps.clone());
+    engine.start().unwrap();
+    let typed = engine.tick().unwrap();
+    assert_eq!(typed, None, "nothing may be typed before the secret check");
+    assert!(
+        !h.injector.texts().iter().any(|t| t.contains("hunter2")),
+        "injected: {:?}",
+        h.injector.texts()
+    );
+}

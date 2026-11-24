@@ -687,3 +687,154 @@ pub fn reproject(strokes: &mut [Stroke], delta: Point, anchored: &[bool]) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ports::DisplayInfo;
+
+    fn displays() -> Vec<DisplayInfo> {
+        vec![
+            DisplayInfo {
+                index: 0,
+                id: 1,
+                name: "built-in".into(),
+                origin_x: 0.0,
+                origin_y: 0.0,
+                width: 1440.0,
+                height: 900.0,
+                scale: 2.0,
+                is_primary: true,
+                is_cursor_display: true,
+            },
+            DisplayInfo {
+                index: 1,
+                id: 2,
+                name: "external".into(),
+                origin_x: -1920.0,
+                origin_y: 0.0,
+                width: 1920.0,
+                height: 1080.0,
+                scale: 1.0,
+                is_primary: false,
+                is_cursor_display: false,
+            },
+        ]
+    }
+
+    #[test]
+    fn parses_point_with_label_and_screen() {
+        let d = displays();
+        let p = parse_reply("看这里 [POINT:200,100:save:1]", &d, 0);
+        assert_eq!(p.plain_text, "看这里");
+        match &p.annotations[0].kind {
+            AnnotationKind::Point { x_px, y_px, label } => {
+                assert_eq!(*x_px, 200.0);
+                assert_eq!(*y_px, 100.0);
+                assert_eq!(label, "save");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        assert_eq!(p.annotations[0].screen, 1);
+    }
+
+    #[test]
+    fn point_none_is_recorded_and_silent() {
+        let d = displays();
+        let p = parse_reply("不确定 [POINT:none]", &d, 0);
+        assert!(p.points_to_none);
+        assert!(p.annotations.is_empty());
+        assert_eq!(p.plain_text, "不确定");
+    }
+
+    #[test]
+    fn malformed_tags_are_dropped_not_spoken() {
+        let d = displays();
+        let p = parse_reply("bad [POINT:abc,def:label:0] end", &d, 0);
+        assert!(p.annotations.is_empty());
+        assert_eq!(p.dropped.len(), 1);
+        assert!(!p.plain_text.contains("POINT"));
+    }
+
+    #[test]
+    fn out_of_range_coordinates_are_clipped() {
+        let d = displays();
+        let p = parse_reply("[POINT:99999,99999:edge:0]", &d, 0);
+        let AnnotationKind::Point { x_px, y_px, .. } = &p.annotations[0].kind else {
+            panic!("expected point");
+        };
+        assert_eq!(*x_px, d[0].width_px() as f64);
+        assert_eq!(*y_px, d[0].height_px() as f64);
+    }
+
+    #[test]
+    fn unknown_screen_falls_back_to_cursor_display() {
+        let d = displays();
+        let p = parse_reply("[POINT:100,100:here:9]", &d, 1);
+        assert_eq!(p.annotations[0].screen, 1);
+    }
+
+    #[test]
+    fn parses_every_draw_shape() {
+        let d = displays();
+        let raw = "[DRAW:0:circle(100,100,50)] [DRAW:0:rect(10,20,30,40)] [DRAW:0:arrow(1,2,3,4)] [DRAW:0:line(5,6,7,8)] [DRAW:0:poly(0,0;10,0;10,10)] [DRAW:0:text(20,30,note)]";
+        let p = parse_reply(raw, &d, 0);
+        assert_eq!(p.annotations.len(), 6);
+        assert!(p
+            .annotations
+            .iter()
+            .all(|a| matches!(a.kind, AnnotationKind::Draw(_))));
+        assert_eq!(p.plain_text, "");
+    }
+
+    #[test]
+    fn parses_step_with_target_rect() {
+        let d = displays();
+        let p = parse_reply("first [STEP:1:open menu:rect(100,200,80,40)]", &d, 0);
+        assert_eq!(p.steps.len(), 1);
+        let s = &p.steps[0];
+        assert_eq!(s.n, 1);
+        assert_eq!(s.label, "open menu");
+        assert!((s.target.x - 50.0).abs() < 0.6, "x {}", s.target.x);
+        assert!((s.target.w - 40.0).abs() < 0.6, "w {}", s.target.w);
+    }
+
+    #[test]
+    fn strip_tags_keeps_unknown_brackets() {
+        let out = strip_tags("see [note] and [POINT:1,2:x:0]");
+        assert!(out.contains("[note]"), "{out}");
+        assert!(!out.contains("POINT"), "{out}");
+    }
+
+    #[test]
+    fn plan_from_builds_strokes_and_respects_cap() {
+        let d = displays();
+        let mut raw = String::with_capacity(0);
+        for i in 0..MAX_ANNOTATIONS + 5 {
+            raw.push_str(&format!("[POINT:{},{i}:p:0]", 10 + i));
+        }
+        let p = parse_reply(&raw, &d, 0);
+        let plan = plan_from(&p, &d, "plan-1").unwrap();
+        assert!(plan.items.len() <= MAX_ANNOTATIONS);
+        assert!(!plan.items[0].strokes.is_empty());
+    }
+
+    #[test]
+    fn reproject_only_moves_anchored_strokes() {
+        let mut strokes = vec![
+            Stroke {
+                kind: StrokeKind::Rect,
+                points: vec![Point { x: 0.0, y: 0.0 }],
+                closed: true,
+            },
+            Stroke {
+                kind: StrokeKind::Rect,
+                points: vec![Point { x: 10.0, y: 10.0 }],
+                closed: true,
+            },
+        ];
+        reproject(&mut strokes, Point { x: 5.0, y: 7.0 }, &[true, false]);
+        assert_eq!(strokes[0].points[0], Point { x: 5.0, y: 7.0 });
+        assert_eq!(strokes[1].points[0], Point { x: 10.0, y: 10.0 });
+    }
+}

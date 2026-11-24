@@ -272,3 +272,32 @@ fn revoked_permission_blocks_state_changing_tools() {
     let t = c.runner.get(&task.id).unwrap();
     assert!(!c.runner.tool_ctx(&t).workspace.join("blocked.txt").exists());
 }
+
+#[test]
+fn task_is_charged_once_at_start_and_steps_separately() {
+    let c = script(vec![
+        tool_call("fs_write", json!({"path":"bill.txt","content":"x"})),
+        tool_call("finish", json!({"result":"done"})),
+    ]);
+    let task = c.runner.create("计费").unwrap();
+    c.runner.step(&task.id).unwrap();
+    let now = chrono::Utc::now();
+    let rows = c
+        .store
+        .usage_between(
+            now - chrono::Duration::hours(1),
+            now + chrono::Duration::hours(1),
+        )
+        .unwrap();
+    let kinds: Vec<&str> = rows.iter().map(|r| r.kind.as_str()).collect();
+    assert_eq!(
+        kinds.iter().filter(|k| **k == "agent_task").count(),
+        1,
+        "task fee once"
+    );
+    assert_eq!(
+        kinds.iter().filter(|k| **k == "agent_step").count(),
+        1,
+        "one step charged"
+    );
+}

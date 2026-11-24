@@ -77,6 +77,11 @@ enum Command {
         name: String,
     },
     Usage,
+    /// Permanently delete all local OpenClicky data (8 ordered steps).
+    Delete {
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 struct PrintOverlay;
@@ -222,6 +227,35 @@ fn main() -> anyhow::Result<()> {
             }
             app.secrets.set(&name, &SecretString::new(key))?;
             println!("saved {name}");
+            Ok(())
+        }
+        Command::Delete { yes } => {
+            if !yes {
+                println!("this removes all local data; re-run with --yes");
+                return Ok(());
+            }
+            let paths = openclicky_core::deletion::DeletionPaths {
+                memory_dir: app.paths.memory_dir(),
+                workspace_dir: app.paths.workspace_dir(),
+                log_dir: app.paths.data_dir.join("logs"),
+                db_file: app.paths.db_file(),
+            };
+            let report =
+                openclicky_core::deletion::execute(&paths, &app.store, app.secrets.as_ref());
+            for step in &report.steps {
+                println!(
+                    "{} {} {}",
+                    if step.ok { "ok  " } else { "FAIL" },
+                    step.step,
+                    step.detail
+                );
+            }
+            for scope in &report.out_of_scope {
+                println!("out of scope: {scope}");
+            }
+            if !report.all_ok() {
+                return Err(anyhow!("some steps failed: {:?}", report.failures()));
+            }
             Ok(())
         }
         Command::Usage => {

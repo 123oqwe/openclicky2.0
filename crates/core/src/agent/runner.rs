@@ -183,6 +183,17 @@ impl TaskRunner {
 
         if task.state == TaskState::Queued {
             self.persist(&mut task, TaskState::Running, None, None)?;
+            // The task-level charge happens once, at start (SDD §4.8).
+            let start_now = self.deps.clock.now();
+            let units = self.deps.usage.meter(&MeterInput {
+                kind: UsageKind::AgentTask,
+                task_id: Some(task.id.clone()),
+                session_id: None,
+                started_at: task.created_at,
+                now: start_now,
+                task_already_charged: false,
+            })?;
+            task.units += units;
         } else if !matches!(
             task.state,
             TaskState::Running | TaskState::WaitingApproval | TaskState::WaitingUser
