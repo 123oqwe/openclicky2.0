@@ -36,7 +36,7 @@
 | spec-only | 还没有对应测试 | 计未执行 |
 
 <!-- TDS-MATRIX:BEGIN -->
-共 72 条：已实现 70、部分 0、spec-only 2。**只有 `已实现` 才能在执行报告中计入通过；`部分` 与 `spec-only` 一律计入未执行/未覆盖。**
+共 72 条：已实现 71、部分 0、spec-only 1。**只有 `已实现` 才能在执行报告中计入通过；`部分` 与 `spec-only` 一律计入未执行/未覆盖。**
 
 | 用例 | 要求 | TC | 状态 | 证据（真实测试） | 备注 |
 |---|---|---|---|---|---|
@@ -57,7 +57,7 @@
 | TC-E2E-ASK-006 | 199ms 短按拒绝（不采集不计费） | TC-E2E-ASK-006 | **已实现** | `crates/core/tests/e2e_ask.rs::short_press_is_rejected_and_not_charged` | — |
 | TC-ANNO-001 | POINT 解析与剥离标签 | TC-ANNO-001…006 | **已实现** | `crates/core/tests/e2e_ask.rs::asks_answers_points_and_charges_once` | 13 条细项见 spec-only |
 | TC-ANNO-002 | 越界裁剪/坏标签丢弃/多形状 | TC-ANNO-002 | **已实现** | `crates/core/src/annotations.rs::parses_every_draw_shape` | 另有 9 条同模块单测 |
-| TC-GEST-001 | 按住期间鼠标轨迹并入参考图 | TC-GEST-001 | **spec-only** | — | 轨迹采集未实现 |
+| TC-GEST-001 | 按住期间鼠标轨迹并入参考图 | TC-GEST-001 | **已实现** | `crates/core/tests/e2e_ask.rs::a_gesture_puts_the_circled_region_into_the_prompt` | bbox/dead-zone/circle 另 3 条 |
 | TC-WALK-001 | 命中推进/点偏释放 | TC-WALK-001 | **已实现** | `crates/core/src/walkthrough.rs::hit_advances_and_miss_releases` | — |
 | TC-WALK-002 | 容差内命中 | TC-WALK-002 | **已实现** | `crates/core/src/walkthrough.rs::click_near_the_edge_still_hits` | — |
 | TC-WALK-003 | 最多 15 步 | TC-WALK-003 | **已实现** | `crates/core/src/walkthrough.rs::at_most_fifteen_steps` | — |
