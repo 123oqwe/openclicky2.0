@@ -5,10 +5,22 @@ A row may only claim `已实现` when every cited `path::test_name` is found on 
 implementation branch. Anything else is `spec-only` or `部分`. This is the fix
 for the audit finding "the matrix cites seven test files that do not exist".
 """
-import subprocess, sys, pathlib, re
+import os, subprocess, sys, pathlib, re
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-BRANCH = "feat/impl"
+# Where the tests live. The docs branch does not carry code, so we read a branch.
+CANDIDATES = [os.environ.get("TDS_SOURCE_BRANCH", ""), "feat/impl", "origin/feat/impl", "HEAD"]
+
+
+def source_branch():
+    for c in CANDIDATES:
+        if not c:
+            continue
+        r = subprocess.run(["git", "rev-parse", "--verify", "--quiet", c],
+                           cwd=ROOT, capture_output=True, text=True)
+        if r.returncode == 0:
+            return c
+    return None
 
 # code, requirement, cases, status, evidence (path::test or "-"), note
 ROWS = [
@@ -156,21 +168,27 @@ ROWS = [
  ("TC-APP-002", "更新包验签", "TC-APP-002", "spec-only", "-", "桌面外壳落地后补"),
 ]
 
-def tests_on_branch():
+def tests_on_branch(branch):
     names = {}
-    out = subprocess.run(["git", "ls-tree", "-r", "--name-only", BRANCH, "crates/core"],
+    out = subprocess.run(["git", "ls-tree", "-r", "--name-only", branch, "crates/core"],
                          cwd=ROOT, capture_output=True, text=True).stdout.split()
     for path in out:
         if not path.endswith(".rs"):
             continue
-        body = subprocess.run(["git", "show", f"{BRANCH}:{path}"],
+        body = subprocess.run(["git", "show", f"{branch}:{path}"],
                               cwd=ROOT, capture_output=True, text=True).stdout
         for m in re.finditer(r'#\[test\]\s*(?:\n\s*)*fn\s+([a-z0-9_]+)', body):
             names.setdefault(path, set()).add(m.group(1))
     return names
 
 def main():
-    have = tests_on_branch()
+    branch = source_branch()
+    if branch is None:
+        print("tds-evidence: no source branch available (tried feat/impl, origin/feat/impl, HEAD)")
+        print("CI must fetch the implementation branch before running this check.")
+        return 2
+    have = tests_on_branch(branch)
+    print(f"tds-evidence: reading tests from {branch}")
     missing = []
     lines = []
     counts = {"已实现": 0, "部分": 0, "spec-only": 0}
@@ -191,10 +209,19 @@ def main():
               f"`部分` 与 `spec-only` 一律计入未执行/未覆盖。**\n")
     table = ("| 用例 | 要求 | TC | 状态 | 证据（真实测试） | 备注 |\n"
              "|---|---|---|---|---|---|\n" + "\n".join(lines) + "\n")
-    path = ROOT / "docs" / "tds-matrix.generated.md"
-    path.write_text(header + "\n" + table, encoding="utf-8")
+    # Inject into the document itself: one source of truth, no copy to drift.
+    doc_path = ROOT / "docs" / "04-test-design.md"
+    doc = doc_path.read_text(encoding="utf-8")
+    begin = "<!-- TDS-MATRIX:BEGIN -->"
+    end = "<!-- TDS-MATRIX:END -->"
+    if begin not in doc or end not in doc:
+        print("markers missing in docs/04-test-design.md")
+        return 1
+    head, rest = doc.split(begin, 1)
+    _, tail = rest.split(end, 1)
+    doc_path.write_text(head + begin + "\n" + header + "\n" + table + end + tail, encoding="utf-8")
     print(header)
-    print(f"wrote {path}")
+    print("injected into docs/04-test-design.md")
     return 0
 
 if __name__ == "__main__":

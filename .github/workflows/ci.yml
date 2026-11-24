@@ -19,6 +19,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch the implementation branch (tests live there)
+        run: git fetch --no-tags origin feat/impl:refs/remotes/origin/feat/impl || true
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -28,6 +32,12 @@ jobs:
         run: python3 scripts/criteria-coverage.py
       - name: Substance check
         run: python3 scripts/doc-audit.py
+      - name: Cross-references (section, ADR id, path)
+        run: python3 scripts/ref-check.py
+      - name: TDS matrix is generated and current
+        run: |
+          python3 scripts/tds-evidence.py
+          git diff --exit-code -- docs/04-test-design.md
 
   prepare:
     name: prepare

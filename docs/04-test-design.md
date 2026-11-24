@@ -35,6 +35,7 @@
 | 部分 | 有测试但只覆盖该条要求的一部分 | 计未覆盖，不得报通过 |
 | spec-only | 还没有对应测试 | 计未执行 |
 
+<!-- TDS-MATRIX:BEGIN -->
 共 72 条：已实现 54、部分 7、spec-only 11。**只有 `已实现` 才能在执行报告中计入通过；`部分` 与 `spec-only` 一律计入未执行/未覆盖。**
 
 | 用例 | 要求 | TC | 状态 | 证据（真实测试） | 备注 |
@@ -111,6 +112,7 @@
 | TC-SEC-006 | 删除逐表报告 | TC-SEC-006 | **部分** | `crates/core/tests/security.rs::deleting_everything_reports_each_table` | 只删 DB 行，文件/钥匙串/日志未删（F3） |
 | TC-APP-001 | 单实例锁 | TC-APP-001 | **spec-only** | — | F3 补 |
 | TC-APP-002 | 更新包验签 | TC-APP-002 | **spec-only** | — | 桌面外壳落地后补 |
+<!-- TDS-MATRIX:END -->
 
 **反向追踪的检查方式**：`python3 scripts/tds-evidence.py` 会对每条 `已实现` 做 `git grep` 校验；任何引用不存在的测试都会让脚本以非 0 退出，CI 会拦下。
 

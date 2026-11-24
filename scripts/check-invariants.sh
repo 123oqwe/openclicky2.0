@@ -27,6 +27,15 @@ done
 note "== docs: numbering and coverage =="
 python3 scripts/doc-audit.py >/dev/null || bad "doc-audit failed"
 python3 scripts/criteria-coverage.py >/dev/null || bad "criteria-coverage failed"
+python3 scripts/ref-check.py >/dev/null || bad "broken cross-reference (section, ADR id or path)"
+
+note "== tds: matrix must match the real tests =="
+if ! python3 scripts/tds-evidence.py >/dev/null; then
+  bad "tds-evidence failed (a cited test does not exist)"
+fi
+if ! git diff --quiet -- docs/04-test-design.md; then
+  bad "docs/04-test-design.md matrix is stale; run scripts/tds-evidence.py and commit"
+fi
 
 # ---------------------------------------------------------------- secrets
 note "== secrets: no key-shaped literals in the repo =="
