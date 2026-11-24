@@ -36,7 +36,7 @@
 | spec-only | 还没有对应测试 | 计未执行 |
 
 <!-- TDS-MATRIX:BEGIN -->
-共 72 条：已实现 61、部分 7、spec-only 4。**只有 `已实现` 才能在执行报告中计入通过；`部分` 与 `spec-only` 一律计入未执行/未覆盖。**
+共 72 条：已实现 65、部分 5、spec-only 2。**只有 `已实现` 才能在执行报告中计入通过；`部分` 与 `spec-only` 一律计入未执行/未覆盖。**
 
 | 用例 | 要求 | TC | 状态 | 证据（真实测试） | 备注 |
 |---|---|---|---|---|---|
@@ -56,7 +56,7 @@
 | TC-E2E-ASK-005 | 打字提问不采集/不录音 | TC-E2E-ASK-005 | **已实现** | `crates/core/tests/e2e_ask.rs::typed_question_skips_audio_and_capture` | — |
 | TC-E2E-ASK-006 | 短按拒绝（199ms 边界） | TC-E2E-ASK-006 | **部分** | `crates/core/tests/e2e_ask.rs::short_press_is_rejected_and_not_charged` | 当前用例不构造 199ms 音频，F3 补 |
 | TC-ANNO-001 | POINT 解析与剥离标签 | TC-ANNO-001…006 | **已实现** | `crates/core/tests/e2e_ask.rs::asks_answers_points_and_charges_once` | 13 条细项见 spec-only |
-| TC-ANNO-002 | 越界裁剪/坏标签丢弃/多形状 | TC-ANNO-007…013 | **spec-only** | — | F3 补 |
+| TC-ANNO-002 | 越界裁剪/坏标签丢弃/多形状 | TC-ANNO-002 | **已实现** | `crates/core/src/annotations.rs::parses_every_draw_shape` | 另有 9 条同模块单测 |
 | TC-GEST-001 | 按住期间鼠标轨迹并入参考图 | TC-GEST-001 | **spec-only** | — | 轨迹采集未实现 |
 | TC-WALK-001 | 命中推进/点偏释放 | TC-WALK-001 | **已实现** | `crates/core/src/walkthrough.rs::hit_advances_and_miss_releases` | — |
 | TC-WALK-002 | 容差内命中 | TC-WALK-002 | **已实现** | `crates/core/src/walkthrough.rs::click_near_the_edge_still_hits` | — |
@@ -65,7 +65,7 @@
 | TC-WALK-005 | 空带做被拒 | TC-WALK-005 | **已实现** | `crates/core/src/walkthrough.rs::empty_walkthrough_is_rejected` | — |
 | TC-DICT-001 | 只注入新增后缀 | TC-DICT-001 | **已实现** | `crates/core/tests/e2e_dictation.rs::only_the_new_suffix_is_typed` | — |
 | TC-DICT-002 | 终端只注入单行 | TC-DICT-002 | **已实现** | `crates/core/tests/e2e_dictation.rs::terminal_targets_get_a_single_line` | — |
-| TC-DICT-003 | 疑似密码不注入 | TC-DICT-003 | **已实现** | `crates/core/tests/e2e_dictation.rs::password_like_speech_is_not_injected` | tick 阶段守卫待 F3 |
+| TC-DICT-003 | 疑似密码不注入 | TC-DICT-003 | **已实现** | `crates/core/tests/e2e_dictation.rs::tick_refuses_password_like_speech` | tick 与 finish 都过守卫 |
 | TC-DICT-004 | 词典学习与复用 | TC-DICT-004 | **已实现** | `crates/core/tests/e2e_dictation.rs::corrections_are_learned_and_reused` | — |
 | TC-DICT-005 | 学习窗口关闭 | TC-DICT-005 | **已实现** | `crates/core/tests/e2e_dictation.rs::learning_window_closes_after_finish` | — |
 | TC-DICT-006 | 前缀合并/回退/清理/词典优先 | TC-DICT-006…008 | **已实现** | `crates/core/src/dictation.rs::merge_handles_rewrite` | 另有 7 条同模块单测 |
@@ -74,7 +74,7 @@
 | TC-USE-003 | 80% 提醒 / 100% 阻断 | TC-USE-003 | **已实现** | `crates/core/src/usage.rs::budget_blocks_at_limit_and_warns_at_80_percent` | — |
 | TC-USE-004 | 每日重置 | TC-USE-004 | **已实现** | `crates/core/src/usage.rs::daily_reset_clears_usage` | — |
 | TC-USE-005 | 当日提额解除阻断 | TC-USE-005 | **已实现** | `crates/core/src/usage.rs::temporary_grant_unblocks_today` | 月度提额待 F3 |
-| TC-USE-006 | 长任务只计一次 | TC-USE-006 | **部分** | `crates/core/src/usage.rs::long_running_task_is_charged_once` | runner 只发 AgentStep，生产路径不可达（F3） |
+| TC-USE-006 | 长任务只计一次 | TC-USE-006 | **已实现** | `crates/core/src/usage.rs::agent_steps_after_twenty_minutes_are_waived` | runner 在 20 分钟后豁免后续回合 |
 | TC-AGT-001 | 写文件后带证据完成 | TC-AGT-001 | **已实现** | `crates/core/tests/e2e_agent.rs::writes_a_file_then_finishes_with_evidence` | — |
 | TC-AGT-002 | 拒绝后不执行且 30 分钟内不问 | TC-AGT-002 | **部分** | `crates/core/tests/e2e_agent.rs::destructive_tool_waits_for_approval_and_denial_prevents_execution` | 30 分钟窗口无时钟推进用例（F3） |
 | TC-AGT-003 | 无证据完成标 unverified | TC-AGT-003 | **已实现** | `crates/core/tests/e2e_agent.rs::claim_without_artifact_is_unverified` | — |
@@ -109,8 +109,8 @@
 | TC-SEC-003 | 沙箱拒绝 ../绝对路径/符号链接 | TC-SEC-003 | **已实现** | `crates/core/src/tools/fs.rs::rejects_symlink_escape` | 另有 3 条同模块单测 |
 | TC-SEC-004 | SSRF 拒绝内网 | TC-SEC-004 | **部分** | `crates/core/src/tools/net.rs::blocks_loopback_and_private` | 127.1 / 十进制 IP 未覆盖（F3） |
 | TC-SEC-005 | 注入守卫（终端/密码） | TC-SEC-005 | **部分** | `crates/core/tests/e2e_dictation.rs::terminal_targets_get_a_single_line` | 密码路径只在 finish 生效（F3） |
-| TC-SEC-006 | 删除逐表报告 | TC-SEC-006 | **部分** | `crates/core/tests/security.rs::deleting_everything_reports_each_table` | 只删 DB 行，文件/钥匙串/日志未删（F3） |
-| TC-APP-001 | 单实例锁 | TC-APP-001 | **spec-only** | — | F3 补 |
+| TC-SEC-006 | 删除逐表报告 | TC-SEC-006 | **已实现** | `crates/core/src/deletion.rs::removes_every_local_artifact_and_reports_it` | 八步 + 范围外声明 |
+| TC-APP-001 | 单实例锁 | TC-APP-001 | **已实现** | `crates/platform/src/singleton.rs::second_instance_is_refused` | — |
 | TC-APP-002 | 更新包验签 | TC-APP-002 | **spec-only** | — | 桌面外壳落地后补 |
 <!-- TDS-MATRIX:END -->
 
