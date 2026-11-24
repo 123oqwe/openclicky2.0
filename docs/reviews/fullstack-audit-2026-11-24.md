@@ -242,8 +242,8 @@
 | U1 热键不交办 | 已修 | `router::looks_like_task` + 桌面热键路由 |
 | U2 从不申请屏幕权限 | 已修（命令 + 引导；真机未验） | `main.rs` `permissions` / `request_permission`，`ui/dist` 第三步 |
 | U3 打字阻塞、不流式、不能停 | 部分修（流式 + 取消 + 预算；仍不截图） | `voice.rs` `ask_typed` |
-| U4 打断失效 | 已修 | `voice.rs` 取消标志与流回调 |
-| U5 批准盲签、拒绝卡死 | 已修（详情 + 拒绝保持暂停） | `main.rs` `task_detail`、`runner.rs` `deny` |
+| U4 打断失效 | 部分修（流式可中断；TTS 播报仍不可打断） | `voice.rs` 取消标志与流回调 |
+| U5 批准盲签、拒绝卡死 | 已修（详情 + 拒绝后转 Paused(denied)） | `main.rs` `task_detail`、`runner.rs` `deny` |
 | U6 反问无界面 | 已修 | `answer_question` 命令 + 输入框 |
 | U7 取消不生效 | 已修 | 取消令牌表 |
 | U8 四块能力无入口 | 部分修（任务/批准/权限已接；听写热键、定时页、建议仍无 UI） | `main.rs`、`ui/dist` |
@@ -253,7 +253,7 @@
 | S2 每 2 秒重建 DOM | 已修（增量 + 保留展开/滚动） | 同上 |
 | S3 两窗口状态不同步 | 部分（同一事件源，仍各自渲染） | 同上 |
 | S4 首跑只有两步 | 已修（加权限步） | 同上 |
-| T1 授权清单缺失 | 已修 | `capabilities/default.json` |
+| T1 授权清单缺失 | 部分修（清单 + 内联脚本外置 + CSP 收紧；app 自有命令仍未走 ACL） | `capabilities/default.json`、`tauri.conf.json`、`ui/dist/*.js` |
 | T2 单修饰键长按 | 未修（技术上限，需自研事件监听） | — |
 | T3 macOS 15.1 屏幕探测旧 API | 未修（需 ScreenCaptureKit 重写） | — |
 | T4 ureq 无 multipart、整体超时 | 部分修（禁重定向 + 读超时；multipart 仍手写） | `platform/http.rs` |
@@ -270,11 +270,11 @@
 | D10 单写者长事务 | 未修（已有 2s busy_timeout；需读连接分离） | — |
 | X1 innerHTML 注入 | 已修（零 innerHTML + CSP；`withGlobalTauri` 暂留） | `ui/dist`、`tauri.conf.json` |
 | X2 SSRF 绕过 | 已修 | `tools/net.rs`、`platform/http.rs` |
-| X3 上传批准是死代码 | 已修（长查询触发批准） | `tools/mod.rs`、`tools/net.rs` |
-| X4 Linux 密钥可复算 | 已修（默认内存，opt-in 才落盘） | `platform/secrets.rs` |
+| X3 上传批准是死代码 | 部分修（长查询/长路径触发批准；短 URL 外发仍是 Allow） | `tools/mod.rs`、`tools/net.rs` |
+| X4 密钥落盘 | 部分修（全平台默认内存；opt-in 落盘等同无口令加密，密钥可由文件内盐推出） | `platform/secrets.rs` |
 | X5 一次批准全任务免问 | 已修（一次性 grant） | `runner.rs` |
 | X6 预算只拦任务 | 已修（问答/打字/听写都拦） | `voice.rs`、`dictation.rs` |
-| X7 不可信文本未包装 | 已修（工具结果、用户回答） | `prompt.rs`、`runner.rs` |
+| X7 不可信文本未包装 | 部分修（工具结果、用户回答；屏幕文本仍无围栏） | `prompt.rs`、`runner.rs` |
 | C1–C10 文档矛盾 | 已修 | `01/02/03/04`、`ADR-0012`、`00-baseline` |
 
 **明确未修**：真机与三平台验证、`ask_typed` 截图指画、INV-2/5/6/8 端到端用例、覆盖率测量、T2/T3/T4 的平台级重写、六个产品分叉。

@@ -803,8 +803,12 @@ impl TaskRunner {
         task.checkpoint
             .facts
             .push("用户选择了 Not now（30 分钟内不再询问）".into());
+        // Denying stops the turn: the task goes to Paused and no runner is
+        // spawned, so the UI shows an honest "已拒绝" instead of a task that
+        // claims to be Running with nothing behind it.
         if task.state == TaskState::WaitingApproval {
-            task.state = transitioned(TaskState::WaitingApproval, TaskState::Running);
+            task.state = TaskState::Paused;
+            task.error_code = Some("denied".into());
         }
         task.updated_at = self.deps.clock.now();
         self.deps.store.upsert_task(&to_row(&task))?;

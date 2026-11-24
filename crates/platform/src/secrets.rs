@@ -13,6 +13,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 use aes_gcm::aead::{Aead, KeyInit};
@@ -31,7 +32,8 @@ const KEY_LABEL: &[u8] = b"openclicky-secrets-file-v2";
 
 pub struct PlatformSecrets {
     fallback_path: PathBuf,
-    degraded: bool,
+    /// Set when the OS keychain is unavailable or failed a read-back.
+    degraded: AtomicBool,
     file_store: bool,
     memory: Mutex<HashMap<String, Vec<u8>>>,
 }
@@ -47,20 +49,21 @@ impl PlatformSecrets {
             fallback_path: data_dir.join("secrets.enc"),
             // Off the keychain the file is only a fallback; degraded means there
             // is no keychain at all, so nothing touches disk until opt-in.
-            degraded,
-            file_store: !degraded,
+            degraded: AtomicBool::new(degraded),
+            // Nothing touches disk until the user opts in.
+            file_store: false,
             memory: Mutex::new(HashMap::new()),
         }
     }
 
     pub fn is_degraded(&self) -> bool {
-        self.degraded
+        self.degraded.load(Ordering::Relaxed)
     }
 
     /// True when secrets are memory-only and the caller could still opt in to
     /// writing them to disk. The UI is expected to ask before that happens.
     pub fn needs_opt_in(&self) -> bool {
-        self.degraded && !self.file_store
+        self.is_degraded() && !self.file_store
     }
 
     /// Start persisting to `secrets.enc`, carrying over anything already held in
@@ -219,7 +222,7 @@ mod keychain {
 impl Secrets for PlatformSecrets {
     fn get(&self, key: &str) -> Result<Option<SecretString>> {
         #[cfg(not(target_os = "linux"))]
-        if !self.degraded {
+        if !self.is_degraded() {
             if let Ok(Some(v)) = keychain::get(key) {
                 return Ok(Some(SecretString::from(v)));
             }
@@ -237,13 +240,16 @@ impl Secrets for PlatformSecrets {
 
     fn set(&self, key: &str, value: &SecretString) -> Result<()> {
         #[cfg(not(target_os = "linux"))]
-        if !self.degraded {
+        if !self.is_degraded() {
             // A successful write that cannot be read back is not a success.
             let wrote = keychain::set(key, value.expose()).is_ok();
             let read_back = matches!(keychain::get(key), Ok(Some(v)) if v == value.expose());
             if wrote && read_back {
                 return Ok(());
             }
+            // The keychain did not take it: remember that this install has no
+            // usable keychain and keep the secret in memory.
+            self.degraded.store(true, Ordering::Relaxed);
         }
         if self.file_store {
             return self.file_set(key, value.expose());
@@ -255,7 +261,7 @@ impl Secrets for PlatformSecrets {
 
     fn delete(&self, key: &str) -> Result<()> {
         #[cfg(not(target_os = "linux"))]
-        if !self.degraded {
+        if !self.is_degraded() {
             let _ = keychain::delete(key);
         }
         self.memory().remove(key);
@@ -356,7 +362,9 @@ mod tests {
 
     fn disk_store() -> (tempfile::TempDir, PlatformSecrets) {
         let dir = tempfile::tempdir().unwrap();
-        let store = PlatformSecrets::open(dir.path(), false);
+    fn disk_store() -> (tempfile::TempDir, PlatformSecrets) {
+        let mut store = store;
+        store.opt_in_file_store().unwrap();
         (dir, store)
     }
 

@@ -579,8 +579,8 @@ CREATE TABLE tasks (
   waiting_since TEXT
 );
 CREATE INDEX idx_tasks_state ON tasks(state, updated_at);
--- M002: one row per (task, step); a retry cannot duplicate a step record.
-CREATE UNIQUE INDEX idx_task_steps_unique ON task_steps(task_id, step);
+-- 以下五个列由 M002 的 ALTER TABLE 追加，此处只画最终形状：
+-- owner, retries, prompt_version, tool_schema_version, waiting_since
 
 CREATE TABLE task_steps (
   id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -613,6 +613,11 @@ CREATE TABLE routines (
 CREATE TABLE dict_entries (
   heard TEXT PRIMARY KEY, corrected TEXT NOT NULL, learned_at TEXT NOT NULL
 );
+
+-- M002：一个任务的一步只有一行；重试不得重复记账。
+CREATE UNIQUE INDEX idx_task_steps_unique ON task_steps(task_id, step);
+CREATE INDEX idx_routines_next ON routines(next_run_at);
+CREATE INDEX idx_usage_task ON usage_events(task_id);
 ```
 
 数据字典（关键字段语义）：

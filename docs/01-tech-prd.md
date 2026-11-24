@@ -135,7 +135,7 @@ Tauri 2 壳 + Rust 核心 + 无框架 TypeScript；SQLite；TOML 配置；系统
 | TR-10 | B18 | 麦克风异常自动切换并说明；断网自动重连 | `audio`,`providers` | TC-AUD-002 |
 | TR-11 | C1–C9 | 打字提问、附件、草稿保留、滚动位置 | `ui`,`store` | TC-UI-003 |
 | TR-12 | D1–D4 | 指与画的协议、坐标换算、锚点跟随 | `annotations` | TC-ANNO-001…013 |
-| TR-13 | D5–D8 | 卡片/3D/回放/次数限制 | 裁剪（见非目标） | — |
+| TR-13 | D5–D8 | 卡片/3D/回放/次数限制 | 延期到 v2.3（ADR-0015 Q8，规格保留） | — |
 | TR-14 | E1–E9 | 带做：命中推进、miss 释放、≤15 步、continue 门 | `walkthrough` | TC-WALK-001…005 |
 | TR-15 | F1–F10 | 听写：增量出字、整理、词典、终端安全、粘回原剪贴板 | `dictation` | TC-DICT-001…010 |
 | TR-16 | G1–G3 | 替你写：看屏起草、就地改、失败兜底 | `dictation`,`prompt` | TC-DICT-011 |
@@ -143,8 +143,8 @@ Tauri 2 壳 + Rust 核心 + 无框架 TypeScript；SQLite；TOML 配置；系统
 | TR-18 | H4–H10 | 任务卡、进度折叠、追加消息、Stop/Retry/Keep going、长任务 | `agent`,`ui` | TC-AGT-003/004 |
 | TR-19 | H11,H12,H18 | 看门狗、历史保留、模型失败自愈 | `agent` | TC-AGT-005, TC-ERR-003 |
 | TR-20 | H16,H17 | 表格输出规范；Your turn + Open page | `agent`,`ui` | TC-AGT-008 |
-| TR-21 | I1–I9 | 连接应用与多账号 | 裁剪为 MCP/HTTP 工具 | TC-TOOL-* |
-| TR-22 | J1–J7 | Chrome 扩展办事 | 非目标 | — |
+| TR-21 | I1–I9 | 连接应用与多账号 | 本期用 MCP/HTTP 工具，连接器延期到 v2.2 | TC-TOOL-* |
+| TR-22 | J1–J7 | Chrome 扩展办事 | 延期到 v2.2（ADR-0015 Q8，规格保留） | — |
 | TR-23 | K1–K8 | 操作电脑（drive） | 裁剪为"工具 + 批准"，不做全局接管 | TC-POL-* |
 | TR-24 | L1–L9 | 定时任务语义（补跑一次、三连失败暂停、离线不计） | `routines` | TC-RTN-001…004 |
 | TR-25 | M1–M9 | 建议与下一步的打扰预算 | `suggest` | TC-SUG-001…004 |

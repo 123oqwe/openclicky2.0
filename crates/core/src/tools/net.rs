@@ -102,6 +102,9 @@ pub fn guard_url(url: &str, allow_private: bool) -> Result<String> {
 /// Resolution failure is not treated as private: the request itself will fail
 /// and report a network error, which is the honest outcome.
 pub fn guard_resolved(url: &str, allow_private: bool) -> Result<String> {
+    if url.len() > 4096 {
+        return Err(Error::BadRequest("url is too long".into()));
+    }
     let parsed = parse(url)?;
     if allow_private {
         return Ok(parsed.raw);
@@ -131,6 +134,18 @@ pub fn guard_resolved(url: &str, allow_private: bool) -> Result<String> {
 /// A GET with a long query string is the only way these tools can send data,
 /// so it must go through approval (SEC-4).
 pub fn url_carries_payload(url: &str) -> bool {
+    // A file read can be exfiltrated through the path just as easily as the
+    // query, so both are measured.
+    if url.len() > 300 {
+        return true;
+    }
+    let after_scheme = url.split_once("://").map(|(_, r)| r).unwrap_or(url);
+    if let Some((_, path_and_query)) = after_scheme.split_once('/') {
+        let path = path_and_query.split(['?', '#']).next().unwrap_or("");
+        if path.split('/').any(|seg| seg.len() > 120) {
+            return true;
+        }
+    }
     let Some((_, query)) = url.split_once('?') else {
         return false;
     };
@@ -312,6 +327,15 @@ mod tests {
         assert!(guard_resolved("http://localhost:8080/x", false).is_err());
         // Opt-in keeps local model endpoints usable.
         assert!(guard_resolved("http://localhost:8080/x", true).is_ok());
+    }
+
+    #[test]
+    fn long_path_segments_count_as_an_outbound_payload() {
+        let long = "a".repeat(150);
+        assert!(url_carries_payload(&format!("https://example.com/{long}")));
+        assert!(!url_carries_payload(
+            "https://example.com/docs/install-guide"
+        ));
     }
 
     #[test]

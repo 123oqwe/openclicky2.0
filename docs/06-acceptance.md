@@ -24,7 +24,7 @@
 ### G2-WP1 文档链
 - 范围与依据：`00-baseline.md` §2；`docs/reviews/standards/`
 - 版本基线：main @ 本次合并 commit
-- 执行结果：doc-audit 101/101、coverage 88/88、ref-check 0 断链、invariants OK
+- 执行结果：doc-audit 103/103、coverage 88/88、ref-check 0 断链、invariants OK
 - 结论：**通过**
 - 证据：CI `docs-and-invariants`；`docs/reviews/audit-output.md`
 
@@ -113,7 +113,7 @@
 
 | 证据 | 位置 |
 |---|---|
-| 单元/集成测试 | `cargo test --workspace`（135） |
+| 单元/集成测试 | `cargo test --workspace`（171） |
 | 文档检查 | `scripts/doc-audit.py`、`criteria-coverage.py`、`ref-check.py`、`tds-evidence.py` |
 | 结构不变量 | `scripts/check-invariants.sh` |
 | 复核原始数据 | `docs/reviews/audit/findings-2026-11-23.json` |
