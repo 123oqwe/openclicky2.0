@@ -7,7 +7,9 @@ use openclicky_core::error::{Error, Result};
 use openclicky_core::ports::SpeechHandle;
 
 pub struct OsSpeech {
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     speed: f32,
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     voice: String,
 }
 
@@ -66,6 +68,7 @@ impl OsSpeech {
         }
     }
 
+    #[cfg(target_os = "macos")]
     fn voice_usable(&self) -> bool {
         let v = self.voice.trim();
         !v.is_empty() && !v.contains("alloy") && !v.contains("nova") && !v.contains("shimmer")
