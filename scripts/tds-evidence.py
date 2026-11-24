@@ -9,7 +9,7 @@ import os, subprocess, sys, pathlib, re
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 # Where the tests live. The docs branch does not carry code, so we read a branch.
-CANDIDATES = [os.environ.get("TDS_SOURCE_BRANCH", ""), "feat/impl", "origin/feat/impl", "HEAD"]
+CANDIDATES = [os.environ.get("TDS_SOURCE_BRANCH", ""), "HEAD", "feat/impl", "origin/feat/impl"]
 
 
 def source_branch():
