@@ -61,26 +61,25 @@ if [ "$has_code" -eq 1 ]; then
     done
   fi
 
-  note "== core: no direct std::process usage =="
-  if grep -rn --include='*.rs' 'std::process' crates/core/src 2>/dev/null | grep -v '^$' >/dev/null; then
-    bad "crates/core/src uses std::process (route it through CommandRunner)"
-  fi
+  note "== core: no direct std::process usage (comments ignored) =="
+  proc_hits=$(grep -rn --include='*.rs' 'std::process' crates/core/src 2>/dev/null \
+              | grep -vE ':[0-9]+: *//' || true)
+  [ -z "$proc_hits" ] || bad "crates/core uses std::process: $proc_hits"
 
-  note "== capture: only one call site, and it passes a guard =="
-  calls=$(grep -rn --include='*.rs' 'capture_all' crates/core/src crates/platform/src apps 2>/dev/null \
-          | grep -v 'fn capture_all' | grep -v '^.*://' || true)
-  if [ -n "$calls" ]; then
-    # Every production call must pass a guard argument (contains '(' and a variable),
-    # and must be inside voice.rs (the only authorised orchestration point).
-    echo "$calls" | while read -r line; do
-      case "$line" in
-        *crates/core/src/voice.rs*|*crates/platform/src/*) ;;
-        *) echo "VIOLATION: capture outside voice.rs: $line" ;;
-      esac
-    done
-    if echo "$calls" | grep -vE 'capture_all\((&|guard)' >/dev/null; then
-      bad "capture_all called without a guard argument"
-    fi
+  note "== capture: every call site passes a guard; only voice or an explicit user action =="
+  # Ignore comments; a real call looks like `x.capture_all(&guard)`.
+  calls=$(grep -rn --include='*.rs' 'capture_all(' crates/core/src crates/platform/src apps 2>/dev/null \
+          | grep -vE ':[0-9]+: *//' | grep -v 'fn capture_all' || true)
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    case "$line" in
+      *'crates/core/src/voice.rs'*) ;;                                   # the orchestrator
+      *'apps/cli/src/main.rs'*|*'apps/desktop/src/main.rs'*) ;;          # selftest: user-initiated Calibration
+      *) echo "VIOLATION: capture outside the allowed call sites: $line"; fail=1 ;;
+    esac
+  done <<< "$calls"
+  if echo "$calls" | grep -v 'capture_all(&' >/dev/null 2>&1; then
+    bad "capture_all called without a &guard argument"
   fi
 
   note "== permissions: probe before tool execution =="

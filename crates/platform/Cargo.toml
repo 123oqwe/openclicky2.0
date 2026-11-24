@@ -1,0 +1,29 @@
+[package]
+name = "openclicky-platform"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+openclicky-core = { path = "../core" }
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+sha2.workspace = true
+xcap = "0.9"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+enigo = "0.6"
+cpal = "0.18"
+arboard = "3"
+ureq = { version = "2", features = ["tls"] }
+dirs = "5"
+fs2 = "0.4"
+aes-gcm = "0.10"
+rand = "0.8"
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+keyring = "3"
+
+[dev-dependencies]
+tempfile.workspace = true

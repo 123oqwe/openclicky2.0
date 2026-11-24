@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <title>OpenClicky</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin:0; font:14px/1.6 -apple-system, system-ui, sans-serif; background:#141414; color:#eee;
+           display:grid; grid-template-columns: 1.2fr 1fr; height:100vh; }
+    section { padding:18px 20px; overflow:auto; }
+    section + section { border-left:1px solid #2a2a2a; }
+    h1 { font-size:16px; margin:0 0 4px; }
+    h2 { font-size:13px; margin:18px 0 6px; color:#bbb; font-weight:600; }
+    .muted { color:#888; font-size:12px; }
+    input, select, button { font:inherit; }
+    input, select { width:100%; padding:8px 10px; border-radius:8px; border:1px solid #333; background:#1d1d1d; color:#eee; }
+    button { padding:8px 12px; border-radius:8px; border:1px solid #333; background:#222; color:#eee; cursor:pointer; }
+    button:hover:not(:disabled) { background:#2a2a2a; }
+    button:disabled { opacity:.4; cursor:default; }
+    .row { display:flex; gap:8px; margin-top:8px; align-items:center; }
+    .card { border:1px solid #2a2a2a; border-radius:10px; padding:10px 12px; margin-top:10px; background:#191919; }
+    .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:#2a2a2a; font-size:12px; }
+    .pill.rec { background:#7f1d1d; color:#fecaca; }
+    pre { white-space:pre-wrap; margin:6px 0 0; font:inherit; }
+    .err { color:#fca5a5; }
+    .task { display:flex; gap:8px; align-items:center; justify-content:space-between; }
+    .task .actions { display:flex; gap:6px; }
+  </style>
+</head>
+<body>
+  <section>
+    <h1>OpenClicky</h1>
+    <div class="muted"><span id="state" class="pill">…</span> <span id="meta"></span></div>
+
+    <!-- 首跑向导：没有 key 或没有模型时出现 -->
+    <div id="onboard" class="card" hidden>
+      <h2 style="margin-top:0">两步开始</h2>
+      <div class="muted">粘贴你自己的 API key（只存在这台电脑的系统钥匙串里）</div>
+      <div class="row"><input id="key" type="password" placeholder="sk-…" autocomplete="off" /></div>
+      <div class="row">
+        <button id="fetch">拉取模型</button>
+        <span class="muted" id="fetchMsg"></span>
+      </div>
+      <div class="row"><select id="models" disabled><option>先拉取模型</option></select></div>
+      <div class="row"><button id="save" disabled>保存并开始</button></div>
+    </div>
+
+    <div id="chat">
+      <div class="row">
+        <input id="q" placeholder="问点什么，或按住 Ctrl+Alt+Space 说话" />
+        <button id="send">发送</button>
+        <button id="stop" title="停止">停止</button>
+      </div>
+      <div class="card"><div class="muted">回答</div><pre id="answer">—</pre></div>
+      <div class="row"><button id="selftest">抓屏自检</button></div>
+      <div class="card"><div class="muted">用量</div><pre id="usage">—</pre></div>
+    </div>
+  </section>
+
+  <section>
+    <h1>任务</h1>
+    <div class="muted">说一件事，或在这里写下来；需要你同意时会出现按钮</div>
+    <div class="row">
+      <input id="goal" placeholder="例如：把桌面上的三张截图整理成一个清单" />
+      <button id="create">交办</button>
+    </div>
+    <div id="tasks"></div>
+  </section>
+
+  <script type="module">
+    const T = window.__TAURI__;
+    const invoke = T.core.invoke;
+    const listen = T.event.listen;
+    const $ = (id) => document.getElementById(id);
+
+    function showError(e) { $('answer').innerHTML = `<span class="err">${String(e)}</span>`; }
+
+    async function refresh() {
+      try {
+        const s = await invoke('app_state');
+        $('state').textContent = s.state;
+        $('state').className = 'pill' + (s.state === 'listening' ? ' rec' : '');
+        $('meta').textContent = `${s.model || '未选择模型'} · ${s.data_dir}`;
+        $('onboard').hidden = !!s.ready;
+        $('chat').style.opacity = s.ready ? '1' : '.5';
+
+        const u = await invoke('usage');
+        $('usage').textContent =
+          `今日 ${u.daily_used.toFixed(1)}/${u.daily_limit}（${u.percent.toFixed(0)}%）` +
+          ` · 约可问 ${u.about_questions} 次` + (u.blocked ? ' · 已阻断' : '');
+
+        const tasks = await invoke('tasks');
+        $('tasks').innerHTML = tasks.length
+          ? tasks.map(t => `
+            <div class="card task">
+              <div><b>${t.name}</b> <span class="pill">${t.state}</span>
+                <pre>${t.result ?? ''}</pre></div>
+              <div class="actions">
+                ${t.state === 'waiting_approval' ? `<button data-approve="${t.id}">同意</button>
+                  <button data-deny="${t.id}">拒绝</button>` : ''}
+                ${['running','queued','waiting_user','waiting_approval'].includes(t.state)
+                  ? `<button data-cancel="${t.id}">取消</button>` : ''}
+              </div>
+            </div>`).join('')
+          : '<div class="muted">还没有任务</div>';
+      } catch (e) { showError(e); }
+    }
+
+    $('fetch').onclick = async () => {
+      $('fetchMsg').textContent = '正在连接…';
+      try {
+        const models = await invoke('list_models', { key: $('key').value });
+        const sel = $('models');
+        sel.innerHTML = models.map(m => `<option value="${m}">${m}</option>`).join('');
+        sel.disabled = models.length === 0;
+        $('save').disabled = models.length === 0;
+        $('fetchMsg').textContent = `找到 ${models.length} 个模型`;
+      } catch (e) {
+        $('fetchMsg').textContent = String(e);
+      }
+    };
+
+    $('save').onclick = async () => {
+      try {
+        await invoke('save_provider', { key: $('key').value, model: $('models').value });
+        $('key').value = '';
+        await refresh();
+      } catch (e) { showError(e); }
+    };
+
+    $('send').onclick = async () => {
+      const text = $('q').value.trim();
+      if (!text) return;
+      $('answer').textContent = '…';
+      try { $('answer').textContent = await invoke('ask_text', { text }); }
+      catch (e) { showError(e); }
+      refresh();
+    };
+    $('q').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('send').click(); });
+    $('stop').onclick = async () => { try { await invoke('cancel_voice'); } catch (e) { showError(e); } };
+    $('selftest').onclick = async () => {
+      try { $('answer').textContent = JSON.stringify(await invoke('selftest'), null, 2); }
+      catch (e) { showError(e); }
+    };
+    $('create').onclick = async () => {
+      const goal = $('goal').value.trim();
+      if (!goal) return;
+      try { await invoke('create_task', { goal }); $('goal').value = ''; }
+      catch (e) { showError(e); }
+      refresh();
+    };
+
+    $('tasks').addEventListener('click', async (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      try {
+        if (b.dataset.approve) await invoke('approve_task', { id: b.dataset.approve });
+        if (b.dataset.deny) await invoke('deny_task', { id: b.dataset.deny });
+        if (b.dataset.cancel) await invoke('cancel_task', { id: b.dataset.cancel });
+      } catch (err) { showError(err); }
+      refresh();
+    });
+
+    await listen('answer', (e) => { $('answer').textContent = e.payload; refresh(); });
+    await listen('error', (e) => { showError(e.payload); });
+    await listen('recording', (e) => {
+      $('state').textContent = e.payload ? 'listening' : 'idle';
+      $('state').className = 'pill' + (e.payload ? ' rec' : '');
+    });
+    await listen('app-event', (e) => {
+      const p = e.payload || {};
+      if (p.kind === 'State') { $('state').textContent = p.data; }
+      if (p.kind === 'Delta') { $('answer').textContent = ($('answer').textContent === '…' ? '' : $('answer').textContent) + (p.data || ''); }
+      if (p.kind === 'TaskUpdated') { refresh(); }
+      if (p.kind === 'Usage') { refresh(); }
+    });
+
+    refresh();
+    setInterval(refresh, 2000);
+  </script>
+</body>
+</html>

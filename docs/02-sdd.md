@@ -3,7 +3,7 @@
 | 项 | 值 |
 |---|---|
 | 编号 | OC2-SDD |
-| 版本 | 1.5（2026-11-23，tasks 增加 owner 列；迁移说明对齐 ADR-0015 Q9） |
+| 版本 | 1.6（2026-11-23，命令面补首跑与交办；provider 改为按次重建） |
 | 状态 | 已批准 |
 | 依据 | `01-tech-prd.md` v1.0、`adr/ADR-0001…0013` |
 | 适用 | `crates/core`、`crates/platform`、`apps/desktop`、`apps/cli`、前端 |
@@ -810,10 +810,13 @@ impl Error { pub fn code(&self) -> &'static str; pub fn user_message(&self) -> S
 
 | 命令 | 入参 | 返回 | 说明 |
 |---|---|---|---|
-| `app_state` | — | `{state, model, budget, config_path, data_dir}` | 首屏与刷新 |
+| `app_state` | — | `{state, has_key, ready, model, kind, base_url, budget, config_path, data_dir}` | `ready=false` 触发首跑向导 |
+| `list_models` | `{key?}` | `[model]` | 首跑第 2 步：用刚粘的 key 拉模型 |
+| `save_provider` | `{key?, model}` | — | 首跑第 3 步：写钥匙串 + `config.toml`；provider 按次重建，立即生效 |
 | `ask_text` | `{text}` | 回答文本 | 打字提问，不采集 |
 | `usage` | — | `{daily_used, daily_limit, percent, blocked}` | 用量环 |
 | `tasks` | — | `[{id,name,state,result}]` | 任务列表 |
+| `create_task` | `{goal}` | `id` | 建任务并在后台线程执行 |
 | `approve_task` / `deny_task` / `cancel_task` | `{id}` | — | 审批与取消 |
 | `cancel_voice` | — | — | 打断当前语音会话 |
 | `selftest` | — | 每屏尺寸/字节 | 抓屏自检 |
