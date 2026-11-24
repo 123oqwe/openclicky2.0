@@ -145,5 +145,6 @@
 | ADR-0012-testing.md | OK |
 | ADR-0013-dictation-streaming.md | OK |
 | ADR-0014-desktop-shell.md | OK |
+| ADR-0015-delivery-decisions.md | OK |
 
 **合计：88/88 项有位置；ADR 12 字段：全部齐全**

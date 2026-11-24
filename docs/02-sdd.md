@@ -3,7 +3,7 @@
 | 项 | 值 |
 |---|---|
 | 编号 | OC2-SDD |
-| 版本 | 1.4（2026-11-23，A-04 补充删除/供应商/轨迹/桌面命令的单元契约） |
+| 版本 | 1.5（2026-11-23，tasks 增加 owner 列；迁移说明对齐 ADR-0015 Q9） |
 | 状态 | 已批准 |
 | 依据 | `01-tech-prd.md` v1.0、`adr/ADR-0001…0013` |
 | 适用 | `crates/core`、`crates/platform`、`apps/desktop`、`apps/cli`、前端 |
@@ -569,7 +569,8 @@ CREATE TABLE messages (
 CREATE INDEX idx_messages_session ON messages(session_id, created_at);
 
 CREATE TABLE tasks (
-  id TEXT PRIMARY KEY, name TEXT NOT NULL, goal TEXT NOT NULL, state TEXT NOT NULL,
+  id TEXT PRIMARY KEY, owner TEXT NOT NULL DEFAULT 'local',
+  name TEXT NOT NULL, goal TEXT NOT NULL, state TEXT NOT NULL,
   checkpoint_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
   heartbeat_at TEXT, epoch INTEGER NOT NULL DEFAULT 1, retries INTEGER NOT NULL DEFAULT 0,
   units REAL NOT NULL DEFAULT 0, steps_done INTEGER NOT NULL DEFAULT 0,
@@ -1122,7 +1123,7 @@ if missed_more_than_one_during_sleep -> run exactly once (catch_up_once)
 
 | 变化 | 旧数据/旧任务 | 策略 |
 |---|---|---|
-| 新增 DB 列 | 兼容 | 可空/默认值 |
+| 新增 DB 列 | 兼容 | 可空/默认值；`owner` 已于 v1 内建（ADR-0015 Q9） |
 | 删除列 | 两版本 | 停写→下版删 |
 | `checkpoint` 结构变化 | 旧任务可能无法恢复 | `checkpoint.version`；不识别 → `Paused(incompatible)`，不猜 |
 | 注解语法 | 只增 | 旧标签永久可解析 |

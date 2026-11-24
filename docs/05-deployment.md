@@ -16,9 +16,9 @@
 
 | 平台 | 产物 | 谁产出 | 现状 |
 |---|---|---|---|
-| macOS 13+（arm64 / x86_64） | `openclicky` 可执行文件；后续 `.dmg` + `.app` | CI `release.yml` | CLI 可构建；dmg 待 Tauri 外壳 |
-| Windows 10 1809+ / 11（x64） | `openclicky.exe`；后续 `.msi` + NSIS `.exe` | CI `release.yml` | CLI 可构建；安装器待 Tauri 外壳 |
-| Linux x86_64（X11） | `openclicky`；后续 `.AppImage` + `.deb` | CI `release.yml` | CLI 可构建；包待 Tauri 外壳 |
+| macOS 14.2+（arm64；Intel 需 universal 构建，尚未产出） | CLI 可执行文件 + `OpenClicky.app` / `.dmg` | CI `release.yml`（desktop job） | 本机已产出 `.app`（6.95MiB）；`.dmg` 与 universal 未验证 |
+| Windows 10 1809+ / 11（x64，**需 WebView2 运行时**） | CLI `.exe` + NSIS 安装器 | CI `release.yml`（desktop job） | CLI 可构建；NSIS 未运行 |
+| Linux x86_64（X11） | CLI + `.AppImage` / `.deb` | CI `release.yml`（desktop job） | CLI 可构建；AppImage/deb 未运行 |
 
 版本号规则：`vMAJOR.MINOR.PATCH`；tag 即发布触发条件，`main` 合并不等于发布。
 
@@ -35,6 +35,15 @@
 隔离运行（测试、多账户）：`openclicky --data-dir /tmp/oc2 doctor`。
 
 ---
+
+## 2.1 平台前置条件（安装前就要满足）
+
+| 平台 | 前置 | 不满足会怎样 |
+|---|---|---|
+| macOS | 14.2+；首次运行需给屏幕录制 / 辅助功能 / 麦克风权限 | 缺屏幕录制：只能无图回答；缺辅助功能：热键与注入失效 |
+| macOS 15+ | 系统会周期性重新询问屏幕录制授权 | 表现为"权限自己丢了"，重开开关即可 |
+| Windows | WebView2 运行时（Win11 自带；Win10 可能需单独安装） | 窗口白屏或不启动 |
+| Linux | X11 会话（Wayland 仅能问答，不能注入/指点） | 听写与"指给你看"不可用 |
 
 ## 3. macOS
 
@@ -84,7 +93,7 @@ CI 预留：`APPLE_CERTIFICATE`、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_SIGNING_
 
 ### 4.2 权限与默认键
 - 无系统级权限弹窗；麦克风由"设置 → 隐私 → 麦克风"控制。
-- **没有 Fn 键**：默认听写键为 `ctrl+alt` 组合，talk 键为 `ctrl+shift`（可在配置里改）。
+- **没有 Fn 键**：桌面壳统一使用 **Ctrl+Alt+Space**（ADR-0014/0015 Q14）；听写键在壳内尚未接线。改键需要壳读配置，当前不支持。
 - 全局热键与注入不需要管理员权限；若公司策略禁止，`doctor` 会报明确错误而不是静默失败。
 
 ### 4.3 升级 / 回滚 / 卸载
@@ -112,7 +121,7 @@ chmod +x OpenClicky-2.0.0-x86_64.AppImage && ./OpenClicky-2.0.0-x86_64.AppImage
 # deb
 sudo dpkg -i openclicky_2.0.0_amd64.deb || sudo apt-get -f install
 ```
-依赖（deb 会声明）：`libwebkit2gtk-4.1-0`、`libgtk-3-0`、`libasound2`、`xdotool`（注入）、`x11-utils`。
+依赖（deb 会声明）：`libwebkit2gtk-4.1-0`、`libgtk-3-0`、`libasound2`、`libxkbcommon0`（enigo 注入用）、`x11-utils`；构建时需要对应的 `-dev` 包（见 CI）。
 `openclicky doctor` 应显示 `displays: N` 且 `screen recording: ok`。
 
 ### 5.2 X11 与 Wayland
@@ -147,7 +156,7 @@ DESK
 | 现象 | 原因 | 处理 |
 |---|---|---|
 | `doctor` 无显示器 | 无 `DISPLAY`（SSH/无头） | 在图形会话中运行，或 `xvfb-run` 仅用于测试 |
-| 注入不生效 | Wayland 或未装 xdotool | 切 X11 / 安装 xdotool |
+| 注入不生效 | Wayland（XTest 不可用） | 切 X11 会话，或改用剪贴板手动粘贴 |
 | 无 TTS | 未装 `spd-say`/`espeak-ng` | 安装任一，或只用字幕 |
 
 ---
