@@ -36,7 +36,7 @@
 | spec-only | 还没有对应测试 | 计未执行 |
 
 <!-- TDS-MATRIX:BEGIN -->
-共 72 条：已实现 65、部分 5、spec-only 2。**只有 `已实现` 才能在执行报告中计入通过；`部分` 与 `spec-only` 一律计入未执行/未覆盖。**
+共 72 条：已实现 69、部分 1、spec-only 2。**只有 `已实现` 才能在执行报告中计入通过；`部分` 与 `spec-only` 一律计入未执行/未覆盖。**
 
 | 用例 | 要求 | TC | 状态 | 证据（真实测试） | 备注 |
 |---|---|---|---|---|---|
@@ -54,7 +54,7 @@
 | TC-E2E-ASK-003 | 缺模型报 E_MODEL | TC-E2E-ASK-003 | **已实现** | `crates/core/tests/e2e_ask.rs::missing_model_is_a_clear_error` | — |
 | TC-E2E-ASK-004 | 消息与用量同事务落库 | TC-E2E-ASK-004 | **已实现** | `crates/core/tests/e2e_ask.rs::messages_and_usage_are_persisted_together` | — |
 | TC-E2E-ASK-005 | 打字提问不采集/不录音 | TC-E2E-ASK-005 | **已实现** | `crates/core/tests/e2e_ask.rs::typed_question_skips_audio_and_capture` | — |
-| TC-E2E-ASK-006 | 短按拒绝（199ms 边界） | TC-E2E-ASK-006 | **部分** | `crates/core/tests/e2e_ask.rs::short_press_is_rejected_and_not_charged` | 当前用例不构造 199ms 音频，F3 补 |
+| TC-E2E-ASK-006 | 199ms 短按拒绝（不采集不计费） | TC-E2E-ASK-006 | **已实现** | `crates/core/tests/e2e_ask.rs::short_press_is_rejected_and_not_charged` | — |
 | TC-ANNO-001 | POINT 解析与剥离标签 | TC-ANNO-001…006 | **已实现** | `crates/core/tests/e2e_ask.rs::asks_answers_points_and_charges_once` | 13 条细项见 spec-only |
 | TC-ANNO-002 | 越界裁剪/坏标签丢弃/多形状 | TC-ANNO-002 | **已实现** | `crates/core/src/annotations.rs::parses_every_draw_shape` | 另有 9 条同模块单测 |
 | TC-GEST-001 | 按住期间鼠标轨迹并入参考图 | TC-GEST-001 | **spec-only** | — | 轨迹采集未实现 |
@@ -76,14 +76,14 @@
 | TC-USE-005 | 当日提额解除阻断 | TC-USE-005 | **已实现** | `crates/core/src/usage.rs::temporary_grant_unblocks_today` | 月度提额待 F3 |
 | TC-USE-006 | 长任务只计一次 | TC-USE-006 | **已实现** | `crates/core/src/usage.rs::agent_steps_after_twenty_minutes_are_waived` | runner 在 20 分钟后豁免后续回合 |
 | TC-AGT-001 | 写文件后带证据完成 | TC-AGT-001 | **已实现** | `crates/core/tests/e2e_agent.rs::writes_a_file_then_finishes_with_evidence` | — |
-| TC-AGT-002 | 拒绝后不执行且 30 分钟内不问 | TC-AGT-002 | **部分** | `crates/core/tests/e2e_agent.rs::destructive_tool_waits_for_approval_and_denial_prevents_execution` | 30 分钟窗口无时钟推进用例（F3） |
+| TC-AGT-002 | 拒绝后不执行且 30 分钟内不问 | TC-AGT-002 | **已实现** | `crates/core/src/tools/policy.rs::destructive_asks_then_respects_not_now` | 拒绝路径见 e2e_agent |
 | TC-AGT-003 | 无证据完成标 unverified | TC-AGT-003 | **已实现** | `crates/core/tests/e2e_agent.rs::claim_without_artifact_is_unverified` | — |
 | TC-AGT-004 | 取消终态且保留检查点 | TC-AGT-004 | **已实现** | `crates/core/tests/e2e_agent.rs::cancellation_is_terminal_and_keeps_the_checkpoint` | — |
 | TC-AGT-005 | 启动恢复置 Paused | TC-AGT-005 | **已实现** | `crates/core/tests/e2e_agent.rs::startup_recovery_pauses_stale_running_tasks` | — |
 | TC-AGT-006 | 批准后动作只执行一次 | TC-AGT-006 | **已实现** | `crates/core/tests/e2e_agent.rs::approval_lets_the_action_run_once` | — |
 | TC-AGT-007 | 循环检测停止任务 | TC-AGT-007 | **已实现** | `crates/core/tests/e2e_agent.rs::repeated_identical_calls_stop_the_task` | 当前是 Failed(loop)，规范要求改道 + 事件（F3） |
 | TC-AGT-008 | shell 关闭时拒绝 | TC-AGT-008 | **已实现** | `crates/core/tests/e2e_agent.rs::shell_is_denied_when_disabled` | — |
-| TC-AGT-009 | 状态机转换表 | TC-AGT-009 | **部分** | `crates/core/src/agent/mod.rs::transitions_follow_the_table` | 与 SDD 表仍有 6 类差异（F3） |
+| TC-AGT-009 | 状态机转换表 | TC-AGT-009 | **已实现** | `crates/core/src/agent/mod.rs::transitions_follow_the_table` | 覆盖 SDD 表全部允许/禁止边 |
 | TC-RTN-001 | 条件不满足等待 | TC-RTN-001 | **已实现** | `crates/core/src/routines.rs::wakes_up_only_when_conditions_are_met` | — |
 | TC-RTN-002 | 三连失败暂停 | TC-RTN-002 | **已实现** | `crates/core/src/routines.rs::wakes_up_only_when_conditions_are_met` | — |
 | TC-RTN-003 | 时间表解析与下次触发 | TC-RTN-003 | **已实现** | `crates/core/src/routines.rs::weekly_picks_the_next_matching_day` | — |
@@ -107,7 +107,7 @@
 | TC-SEC-001 | 密钥脱敏 | TC-SEC-001 | **已实现** | `crates/core/tests/security.rs::credentials_are_redacted_from_logs` | — |
 | TC-SEC-002 | 行内密钥识别 | TC-SEC-002 | **已实现** | `crates/core/tests/security.rs::secret_detection_catches_inline_keys` | — |
 | TC-SEC-003 | 沙箱拒绝 ../绝对路径/符号链接 | TC-SEC-003 | **已实现** | `crates/core/src/tools/fs.rs::rejects_symlink_escape` | 另有 3 条同模块单测 |
-| TC-SEC-004 | SSRF 拒绝内网 | TC-SEC-004 | **部分** | `crates/core/src/tools/net.rs::blocks_loopback_and_private` | 127.1 / 十进制 IP 未覆盖（F3） |
+| TC-SEC-004 | SSRF 拒绝内网（含简写形式） | TC-SEC-004 | **已实现** | `crates/core/src/tools/net.rs::blocks_shorthand_ipv4_forms` | 另有 5 条同模块用例 |
 | TC-SEC-005 | 注入守卫（终端/密码） | TC-SEC-005 | **部分** | `crates/core/tests/e2e_dictation.rs::terminal_targets_get_a_single_line` | 密码路径只在 finish 生效（F3） |
 | TC-SEC-006 | 删除逐表报告 | TC-SEC-006 | **已实现** | `crates/core/src/deletion.rs::removes_every_local_artifact_and_reports_it` | 八步 + 范围外声明 |
 | TC-APP-001 | 单实例锁 | TC-APP-001 | **已实现** | `crates/platform/src/singleton.rs::second_instance_is_refused` | — |
