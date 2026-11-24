@@ -66,6 +66,8 @@ pub struct VoiceEngine {
     deps: Arc<Deps>,
     state: Mutex<State>,
     cancel: Arc<AtomicBool>,
+    /// The utterance currently playing, so a new press can stop it.
+    speech: Mutex<Option<Box<dyn crate::ports::SpeechHandle>>>,
 }
 
 impl VoiceEngine {
@@ -74,6 +76,7 @@ impl VoiceEngine {
             deps,
             state: Mutex::new(State::Idle),
             cancel: Arc::new(AtomicBool::new(false)),
+            speech: Mutex::new(None),
         }
     }
 
@@ -113,6 +116,10 @@ impl VoiceEngine {
     /// Reset the cancel flag for a brand new request. Safe because an interrupted
     /// previous stream had the whole key-hold to notice its own cancellation.
     fn begin_request(&self) {
+        // A new press interrupts the previous answer, spoken or streaming.
+        if let Some(handle) = self.speech.lock().unwrap().take() {
+            handle.cancel();
+        }
         self.cancel.store(false, Ordering::SeqCst);
     }
 
@@ -369,7 +376,14 @@ impl VoiceEngine {
                 captions: config.voice.captions,
             },
         ) {
-            Ok(handle) => handle.wait(),
+            Ok(handle) => {
+                // Keep the handle so the next press can cut the audio off.
+                *self.speech.lock().unwrap() = Some(handle);
+                if let Some(h) = self.speech.lock().unwrap().as_ref() {
+                    h.wait();
+                }
+                self.speech.lock().unwrap().take();
+            }
             Err(e) => {
                 speech_fallback = true;
                 self.deps.emit(AppEvent::Notice {
@@ -485,9 +499,38 @@ impl VoiceEngine {
         self.set_state(State::Thinking);
         let config = self.deps.config_snapshot();
         let session_id = self.deps.store.insert_session("typed", Utc::now())?;
+
+        // A typed question may point at the screen too (SRC-PRD C4). Capture
+        // still goes through the single gate; without permission we answer
+        // without pointing instead of failing the question.
+        let shots = if self.deps.permissions.screen_recording() {
+            let guard = self.deps.gate.authorize(CaptureReason::TypedQuestion);
+            let result = self.deps.screen.capture_all(&guard);
+            guard.close();
+            result.unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let displays: Vec<_> = shots.iter().map(|s| s.display.clone()).collect();
+        let cursor_display = displays
+            .iter()
+            .position(|d| d.is_cursor_display)
+            .unwrap_or(0);
+        let target = self.deps.injector.focused();
+        let card = target.as_ref().and_then(|t| prompt::teaching_card(&t.app));
+        let images = shots
+            .iter()
+            .map(|s| crate::ports::ImageInput {
+                screen_index: s.display.index,
+                png: s.png.clone(),
+                width_px: s.width_px,
+                height_px: s.height_px,
+            })
+            .collect::<Vec<_>>();
+
         let tier = router::route(RouteInput {
             text,
-            has_screen: false,
+            has_screen: !shots.is_empty(),
             is_task: false,
         });
         let model = config.effective_model(tier);
@@ -496,12 +539,12 @@ impl VoiceEngine {
             return Err(Error::NoModel);
         }
         let ctx = PromptContext {
-            app_name: None,
-            teaching_card: None,
+            app_name: target.as_ref().map(|t| t.app.as_str()),
+            teaching_card: card,
             memory_profile: &self.deps.memory.profile_text(),
             memory_projects: &self.deps.memory.projects_text(),
-            displays: &[],
-            cursor_display: 0,
+            displays: &displays,
+            cursor_display,
             language: if config.voice.language.is_empty() {
                 None
             } else {
@@ -515,7 +558,7 @@ impl VoiceEngine {
             model: model.clone(),
             system: prompt::system_prompt(&ctx),
             messages: vec![ChatMessage::user(text)],
-            images: Vec::new(),
+            images,
             tools: Vec::new(),
             max_tokens: config.voice.max_answer_tokens,
             temperature: 0.3,
@@ -553,11 +596,22 @@ impl VoiceEngine {
             self.deps.overlay.clear().ok();
             return Err(Error::State("已取消".into()));
         }
-        let parsed = annotations::parse_reply(&response.text, &[], 0);
+        let parsed = annotations::parse_reply(&response.text, &displays, cursor_display);
         self.set_state(State::Speaking);
         self.deps.emit(AppEvent::Answer {
             text: parsed.plain_text.clone(),
         });
+        if let Some(plan) = annotations::plan_from(
+            &parsed,
+            &displays,
+            &format!("{session_id}-{}", self.deps.clock.now().timestamp_millis()),
+        ) {
+            if self.deps.overlay.show(&plan).is_ok() {
+                self.deps.emit(AppEvent::Annotations {
+                    plan_id: plan.plan_id.clone(),
+                });
+            }
+        }
         let (units, _waived) = self.deps.usage.quote(&MeterInput {
             kind: UsageKind::Voice,
             task_id: None,

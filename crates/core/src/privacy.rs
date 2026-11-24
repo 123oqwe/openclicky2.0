@@ -8,6 +8,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CaptureReason {
     Hotkey,
+    /// A typed question may point too (SRC-PRD C4); it still needs the gate.
+    TypedQuestion,
     OnboardingDemo,
     UserRetry,
     Calibration,
@@ -17,6 +19,7 @@ impl CaptureReason {
     pub fn as_str(self) -> &'static str {
         match self {
             CaptureReason::Hotkey => "hotkey",
+            CaptureReason::TypedQuestion => "typed",
             CaptureReason::OnboardingDemo => "onboarding",
             CaptureReason::UserRetry => "retry",
             CaptureReason::Calibration => "calibration",

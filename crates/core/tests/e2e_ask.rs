@@ -146,15 +146,20 @@ fn messages_and_usage_are_persisted_together() {
 }
 
 #[test]
-fn typed_question_skips_audio_and_capture() {
+fn typed_question_captures_once_and_can_point() {
     let h = harness(HarnessOpts {
-        chat: vec![ScriptedChat::text("用快捷键就能打开。")],
+        chat: vec![ScriptedChat::text("在左边。[POINT:100,100:left:0]")],
         ..Default::default()
     });
     let engine = VoiceEngine::new(h.deps.clone());
-    let outcome = engine.ask_typed("怎么打开设置").unwrap();
-    assert_eq!(outcome.answer_text, "用快捷键就能打开。");
-    assert_eq!(h.screen.capture_count(), 0);
+    let outcome = engine.ask_typed("这个东西在哪").unwrap();
+    assert_eq!(outcome.answer_text, "在左边。");
+    // A typed question still goes through the gate, once (SRC-PRD C4).
+    assert_eq!(h.screen.capture_count(), 1);
+    assert!(
+        !h.overlay.shown.lock().unwrap().is_empty(),
+        "a typed answer with a POINT tag must draw"
+    );
     assert!(!h.audio.is_recording());
 }
 
