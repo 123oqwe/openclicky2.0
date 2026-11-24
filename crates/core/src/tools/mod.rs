@@ -42,10 +42,6 @@ pub trait Tool: Send + Sync {
     fn outside_workspace(&self, _args: &Value, _workspace: &std::path::Path) -> bool {
         false
     }
-    /// True when the call sends a local file to an external system.
-    fn uploads_local_file(&self, _args: &Value) -> bool {
-        false
-    }
     fn spec(&self) -> ToolSpec;
     fn run(&self, ctx: &ToolCtx, args: &Value) -> Result<ToolOutcome>;
 }
@@ -118,12 +114,6 @@ impl Tool for FetchUrl {
     fn risk(&self, _a: &Value) -> Risk {
         Risk::External
     }
-    fn uploads_local_file(&self, a: &Value) -> bool {
-        a.get("url")
-            .and_then(|v| v.as_str())
-            .map(net::url_carries_payload)
-            .unwrap_or(false)
-    }
     fn spec(&self) -> ToolSpec {
         spec(
             "fetch_url",
@@ -161,12 +151,6 @@ impl Tool for HttpGetJson {
     }
     fn risk(&self, _a: &Value) -> Risk {
         Risk::External
-    }
-    fn uploads_local_file(&self, a: &Value) -> bool {
-        a.get("url")
-            .and_then(|v| v.as_str())
-            .map(net::url_carries_payload)
-            .unwrap_or(false)
     }
     fn spec(&self) -> ToolSpec {
         spec(

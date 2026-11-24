@@ -390,6 +390,7 @@ fn task(app: &App, goal: &str, dry_run: bool) -> anyhow::Result<()> {
         },
         max_steps: app.config.tools.max_steps,
         allow_private_network: app.config.tools.allow_private_network,
+        allow_domains: app.config.tools.allow_domains.clone(),
         shell_enabled: app.config.tools.shell,
         events: Some(Arc::new(|e: AppEvent| {
             if let AppEvent::TaskUpdated { state, message, .. } = e {

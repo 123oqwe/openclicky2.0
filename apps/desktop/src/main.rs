@@ -260,6 +260,7 @@ fn build_state(
         },
         max_steps: cfg.tools.max_steps,
         allow_private_network: cfg.tools.allow_private_network,
+        allow_domains: cfg.tools.allow_domains.clone(),
         shell_enabled: cfg.tools.shell,
         events: Some(events),
     })));

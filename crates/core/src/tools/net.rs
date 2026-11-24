@@ -130,33 +130,17 @@ pub fn guard_resolved(url: &str, allow_private: bool) -> Result<String> {
     Ok(parsed.raw)
 }
 
-/// True when the URL carries an outbound payload rather than naming a page.
-/// A GET with a long query string is the only way these tools can send data,
-/// so it must go through approval (SEC-4).
-pub fn url_carries_payload(url: &str) -> bool {
-    // A file read can be exfiltrated through the path just as easily as the
-    // query, so both are measured.
-    if url.len() > 300 {
-        return true;
-    }
-    let after_scheme = url.split_once("://").map(|(_, r)| r).unwrap_or(url);
-    if let Some((_, path_and_query)) = after_scheme.split_once('/') {
-        let path = path_and_query.split(['?', '#']).next().unwrap_or("");
-        if path.split('/').any(|seg| seg.len() > 120) {
-            return true;
-        }
-    }
-    let Some((_, query)) = url.split_once('?') else {
+/// True when the destination host is on the user's allowlist (SEC-4). A match
+/// is the exact host or a parent domain (`example.com` covers
+/// `api.example.com`), never a prefix, so `evilexample.com` cannot ride it.
+pub fn host_allowed(url: &str, allow: &[String]) -> bool {
+    let Ok(parsed) = parse(url) else {
         return false;
     };
-    let query = query.split('#').next().unwrap_or(query);
-    if query.len() > 200 {
-        return true;
-    }
-    query
-        .split('&')
-        .filter_map(|kv| kv.split_once('=').map(|(_, v)| v))
-        .any(|v| v.len() > 120)
+    allow.iter().any(|entry| {
+        let entry = entry.trim().trim_start_matches('.').to_ascii_lowercase();
+        !entry.is_empty() && (parsed.host == entry || parsed.host.ends_with(&format!(".{entry}")))
+    })
 }
 
 pub fn is_private_host(host: &str) -> bool {
@@ -330,22 +314,24 @@ mod tests {
     }
 
     #[test]
-    fn long_path_segments_count_as_an_outbound_payload() {
-        let long = "a".repeat(150);
-        assert!(url_carries_payload(&format!("https://example.com/{long}")));
-        assert!(!url_carries_payload(
-            "https://example.com/docs/install-guide"
-        ));
+    fn an_empty_allowlist_trusts_nothing() {
+        assert!(!host_allowed("https://example.com/x", &[]));
     }
 
     #[test]
-    fn long_query_counts_as_an_outbound_payload() {
-        assert!(!url_carries_payload("https://example.com/docs?page=2"));
-        assert!(url_carries_payload(&format!(
-            "https://example.com/?d={}",
-            "x".repeat(200)
-        )));
-        assert!(!url_carries_payload("https://example.com/?a=1&b=2"));
+    fn the_allowlist_covers_subdomains_but_not_lookalikes() {
+        let allow = vec!["example.com".to_string()];
+        assert!(host_allowed("https://example.com/x", &allow));
+        assert!(host_allowed("https://api.example.com/x", &allow));
+        assert!(!host_allowed("https://evilexample.com/x", &allow));
+        assert!(!host_allowed("https://example.com.evil.test/x", &allow));
+    }
+
+    #[test]
+    fn an_unparseable_url_is_never_allowed() {
+        let allow = vec!["example.com".to_string()];
+        assert!(!host_allowed("file:///etc/passwd", &allow));
+        assert!(!host_allowed("", &allow));
     }
 
     #[test]

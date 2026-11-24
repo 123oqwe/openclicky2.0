@@ -29,6 +29,7 @@ pub struct AgentDeps {
     pub model: String,
     pub max_steps: u32,
     pub allow_private_network: bool,
+    pub allow_domains: Vec<String>,
     pub shell_enabled: bool,
     pub events: Option<Arc<dyn Fn(crate::AppEvent) + Send + Sync>>,
 }
@@ -402,17 +403,18 @@ impl TaskRunner {
         risk: Risk,
     ) -> crate::tools::policy::CallContext {
         let workspace = self.deps.workspace.join("tasks").join(&task.id);
-        let (outside, upload) = match self.deps.tools.get(name) {
-            Some(t) => (
-                t.outside_workspace(args, &workspace),
-                t.uploads_local_file(args),
-            ),
-            None => (false, false),
+        let outside = match self.deps.tools.get(name) {
+            Some(t) => t.outside_workspace(args, &workspace),
+            None => false,
         };
+        let host_allowed = args
+            .get("url")
+            .and_then(|v| v.as_str())
+            .is_some_and(|u| crate::tools::net::host_allowed(u, &self.deps.allow_domains));
         crate::tools::policy::CallContext {
             risk,
             outside_workspace: outside,
-            uploads_local_file: upload,
+            host_allowed,
         }
     }
 

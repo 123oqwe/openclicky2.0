@@ -56,6 +56,7 @@ fn script(responses: Vec<ChatResponse>) -> Ctx {
         model: "fake-model".into(),
         max_steps: 30,
         allow_private_network: false,
+        allow_domains: Vec::new(),
         shell_enabled: false,
         events: None,
     });

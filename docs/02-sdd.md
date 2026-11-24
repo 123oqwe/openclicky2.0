@@ -506,16 +506,18 @@ pub struct ToolCtx { pub workspace: PathBuf, pub task_id: String, pub http: Arc<
 
 pub struct Policy;
 impl Policy {
-    pub fn decide(&self, risk: Risk, approvals: &Approvals, now: DateTime<Utc>) -> Approval;
+    pub fn decide(&self, call: CallContext, approvals: &Approvals, now: DateTime<Utc>) -> Approval;
 }
 pub struct Approvals { pub per_conversation: bool, pub denied_until: Option<DateTime<Utc>> }
 ```
+
+`CallContext` 带三个只读事实：`risk`、`outside_workspace`（Write 才有意义）、`host_allowed`（External 的目标主机在 `tools.allow_domains` 里）。策略本身不读配置，白名单判断在调用方完成，因此矩阵可以用纯函数测试。
 
 工具清单与风险：
 
 | 工具 | 风险 | 参数 | 说明 |
 |---|---|---|---|
-| `fetch_url` | External | `{url}` | 仅 http/https；SSRF 守卫；HTML→文本；≤ 200k 字符 |
+| `fetch_url` | External | `{url}` | 仅 http/https；SSRF 守卫；默认需批准，白名单主机免问；HTML→文本；≤ 200k 字符 |
 | `http_get_json` | External | `{url, headers?}` | JSON 响应 ≤ 1MB |
 | `fs_list` | Read | `{path}` | 工作区内 |
 | `fs_read` | Read | `{path, max_bytes?}` | ≤ 256KB |
@@ -731,7 +733,7 @@ hotkey_up → final transcribe → diff(末 20s) → 需要则改正 → cleanup
 | Queued | 调度 | Running | 有预算 & 并发<上限 |
 | Queued | 取消 | Canceled | — |
 | Running | 工具成功 | Running | — |
-| Running | 需要批准 | WaitingApproval | risk ∈ {Write(区外), Destructive, External(上传)} |
+| Running | 需要批准 | WaitingApproval | risk ∈ {Write(区外), Destructive, External(主机不在白名单)} |
 | WaitingApproval | 用户批准 | Running | — |
 | WaitingApproval | 用户拒绝 | Running（改道）或 Failed | 模型重试上限 |
 | Running | ask_user | WaitingUser | — |
@@ -868,7 +870,7 @@ impl Error { pub fn code(&self) -> &'static str; pub fn user_message(&self) -> S
 | SEC-1 CaptureGate | `privacy.rs` | **类型级**：`capture_all(&guard)` 需要 guard；guard 只由用户动作构造 | `capture_gate.rs` |
 | SEC-2 密钥 | `platform::secrets`、`SecretString` | 只在拼请求头时取值；`Debug` 打码 | `secrets.rs` |
 | SEC-3 脱敏 | `security::redact` | 每条日志写入前 | `redact.rs` |
-| SEC-4 风险策略 | `tools::policy` | 每次工具调用前，模型外判定。`Read=Allow`；`Write(区内)=Allow / 区外=Ask`；`External(fetch)=Allow（SSRF 守卫）/ 上传本机文件=Ask`；`Destructive=Ask` | `tools_policy.rs` |
+| SEC-4 风险策略 | `tools::policy` | 每次工具调用前，模型外判定。`Read=Allow`；`Write(区内)=Allow / 区外=Ask`；`External=Ask`，仅当目标主机在 `tools.allow_domains` 里才 `Allow`（出站默认要批准：URL 本身就是一条外发通道，任何“这看起来不像上传”的启发式判断都是假保护）；`Destructive=Ask` | `tools/policy.rs` |
 | SEC-5 沙箱 | `tools::fs::resolve_in_workspace` | 每次路径解析，含符号链接检查 | `tools_fs.rs` |
 | SEC-6 SSRF | `tools::net::guard_url` | 每次出站请求前 | `tools_net.rs` |
 | SEC-7 注入守卫 | `dictation::guards` | **每次**注入前（tick 与 finish 都要过），终端与密码两类 | `inject_guards.rs` |
@@ -955,12 +957,12 @@ weights = { voice = 1.0, dictation = 0.5, agent_step = 3.0 }
 [tools]
 shell = false
 allow_private_network = false
+allow_domains = []          # 出站白名单；空 = 每次 External 调用都要批准
 workspace = ""             # 空 = <data>/workspace
 max_steps = 30
 
 [privacy]
-debug_allow_text = false
-keep_screenshots_hours = 24
+debug_allow_text = false        # 截图仅内存 ≤30s，不落盘，因此没有保留期开关
 
 [ui]
 cursor_color = "#ffd166"

@@ -175,6 +175,9 @@ impl Default for Weights {
 pub struct ToolsConfig {
     pub shell: bool,
     pub allow_private_network: bool,
+    /// Hosts whose external calls skip the approval prompt. Empty means every
+    /// external call asks.
+    pub allow_domains: Vec<String>,
     pub workspace: String,
     pub max_steps: u32,
 }
@@ -184,26 +187,17 @@ impl Default for ToolsConfig {
         Self {
             shell: false,
             allow_private_network: false,
+            allow_domains: Vec::new(),
             workspace: String::new(),
             max_steps: 30,
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct PrivacyConfig {
     pub debug_allow_text: bool,
-    pub keep_screenshots_hours: u32,
-}
-
-impl Default for PrivacyConfig {
-    fn default() -> Self {
-        Self {
-            debug_allow_text: false,
-            keep_screenshots_hours: 24,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
