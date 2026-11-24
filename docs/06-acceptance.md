@@ -87,7 +87,7 @@
 |---|---|---|
 | F1 能用 | UI 入库、首跑向导（key+模型）、热键反馈、任务入口与批准按钮、关窗可召回 | 业主在自己的电脑上完成"装→配→问一句→看它指→交办一件→批准" |
 | F2 不烧钱 | 预算下沉到出站层、单次授权、并发抢占、CSP+命令白名单、SSRF 逐跳 | 额度用尽后问答也被挡住；同任务不会被执行两次 |
-| F3 数据 | `approvals`/`artifacts` 表、`retries/pause_reason/waiting_since`、两个索引、FTS、`owner` 列 | 迁移脚本可重跑；任务完成后能查到产物归属 |
+| F3 数据 ✅ | `approvals`/`artifacts` 表、`retries/pause_reason/waiting_since`、两个索引、FTS、`owner` 列 | 迁移脚本可重跑；任务完成后能查到产物归属（证据见 §7） |
 | F4 体验 | notch（v2.1）、建议卡、听写热键、18 语言（分批）、更新验签 | 逐项按 ADR-0015 Q3/Q8/Q11/Q12 验收 |
 
 **顺序不可交换**：F2 之前不发布，F3 之前不接新功能。
@@ -121,7 +121,7 @@
 
 ## 7. 2026-11-24 全栈审核修复批次
 
-依据 `docs/reviews/fullstack-audit-2026-11-24.md`。证据：`cargo test --workspace` 171 通过、`clippy -D warnings` 干净、四个文档脚本全绿。
+依据 `docs/reviews/fullstack-audit-2026-11-24.md`。证据：`cargo test --workspace` 184 通过、`clippy -D warnings` 干净、`scripts/check-invariants.sh` 与四个文档脚本全绿。
 
 | 修复 | 位置 | 绑定测试（文件 › 用例） |
 |---|---|---|
@@ -135,7 +135,13 @@
 | 祈使句判定为任务 | `router.rs` + 桌面热键 | `router` › 6 条（`imperative_*`、`a_question_mark_makes_it_not_a_task`） |
 | 卡号与验证码守卫 | `dictation.rs` `looks_secret` | `dictation` › `card_numbers_are_detected_by_luhn_even_without_the_word`、`one_time_codes_are_detected_but_years_are_not` |
 | SSRF：真实 IP、IPv6、禁跟随重定向 | `tools/net.rs`、`platform/http.rs` | `tools net` › `blocks_loopback_and_private`、`parses_ipv6_with_port`、`resolution_catches_names_that_point_home` |
-| 出站载荷需批准 | `tools/mod.rs` | `tools net` › `long_query_counts_as_an_outbound_payload` |
+| 出站默认需批准，白名单主机免问（旧的上传启发式删除） | `tools/policy.rs`、`tools/net.rs`、`config.rs`（`tools.allow_domains`） | `tools policy` › `external_asks_unless_the_host_is_allowlisted`、`a_url_carrying_data_is_not_a_reason_to_allow_it`；`tools net` › `an_empty_allowlist_trusts_nothing`、`the_allowlist_covers_subdomains_but_not_lookalikes`、`an_unparseable_url_is_never_allowed` |
+| 数据库句柄先关再删文件（Windows os error 32） | `store/mod.rs` `close()`、`deletion.rs` 第 1 步 | `deletion` › `deletion_releases_the_database_handle_before_removing_files` |
+| 删除报告不再吞掉失败的逐表结果 | `deletion.rs` | `deletion` › `a_table_that_refuses_to_empty_fails_step_one` |
+| 迁移 v3：`approvals`/`artifacts` 表、`pause_reason`、FTS5 与三个触发器 | `store/migrations.rs` M003、`store/mod.rs` | `store mod` › `migration_reaches_v3_and_adds_the_pause_reason`、`migrating_twice_is_a_no_op`、`full_text_search_finds_a_message_and_the_delete_trigger_clears_it`、`pause_reason_round_trips_and_clears` |
+| 批准落账，单次可用 | `agent/runner.rs` `note_approval` | `store mod` › `an_approval_is_decided_once_and_used_once`、`a_denied_approval_cannot_be_consumed`、`asking_twice_about_the_same_step_keeps_one_row`；`e2e_agent` › `approval_lets_the_action_run_once` |
+| 产物归属可查（kind / bytes / sha256） | `agent/runner.rs` `finish`、`security::sha256_file` | `e2e_agent` › `writes_a_file_then_finishes_with_evidence`；`store mod` › `artifacts_survive_a_reopen_and_stay_scoped_to_their_task` |
+| 删掉没人用的截图保留期开关（口径统一为仅内存 30s） | `config.rs`、`02-sdd.md` §19 | 无自动化，配置形状由 `config` 往返用例覆盖 |
 | 前端零 innerHTML | `ui/dist/index.html` | 无自动化，一次性 DOM 断言 |
 | 授权清单、CSP、图标 | `capabilities/default.json`、`tauri.conf.json` | 需真机 |
 | 取消令牌表、answer_question、权限命令、单实例、召回键、托盘 | `apps/desktop/src/main.rs` | 需真机 |
@@ -143,10 +149,18 @@
 | Linux 密钥不再可复算落盘 | `platform/secrets.rs` | `secrets` › 内存默认、opt-in、0600、跨安装不同密文 |
 | 十处文档矛盾、37 条无归属规则 | `01/02/03/04`、`ADR-0012`、`00-baseline` | 三个文档脚本 |
 
-**仍未修，逐条记录**：
+**仍未修，逐条记录，每条都写明卡在哪**：
 
-1. INV-2、INV-5、INV-6、INV-8 仍缺端到端用例，只有函数级测试。
-2. `ask_typed` 仍不截图、不画指（PRD C4 的一半）。
-3. 真实模型、真机 TCC、Windows/Linux 构建、托盘渲染、CSP 运行时效果均未验证。
-4. 覆盖率仍未接 `cargo llvm-cov`，G3 第 1 条只能是未实测。
-5. 六个产品分叉（账号付费、热键手感、多屏、听写注入、加密、遥测）未拍板，当前按可回滚的 A 选项落地。
+| 项 | 卡在哪 |
+|---|---|
+| INV-2、INV-5、INV-6、INV-8 只有函数级测试 | 端到端用例要一次真实任务 + 真机权限；`e2e_agent` 只能脚本化模型 |
+| `ask_typed` 不截图、不画指（PRD C4 的一半） | 要把握屏端口接进打字通道，与热键通道共用权限与预算闸门 |
+| 应用自有命令未走 Tauri ACL | `withGlobalTauri: true` 是无打包步骤（ADR-0014）的前提；关掉它要先给 UI 加模块加载，属于 UI 工程改造 |
+| 多屏覆盖层（U9） | 需要每屏一个窗口，窗口管理要重写 |
+| 单修饰键长按（T2）、macOS 15.1 屏幕探测（T3） | 平台级重写，需真机验证 |
+| `usage_events.task_id` 无外键（D5） | SQLite 加外键要重建表；现有索引已覆盖查询，风险大于收益 |
+| 读写连接分离（D10） | 单进程单写者 + 2s busy_timeout 已覆盖当前负载 |
+| opt-in 落盘密钥无主密码（X4） | 需要引入 Argon2id 与解锁流程，是一个独立特性 |
+| 真实模型、真机 TCC、Windows/Linux 构建、托盘渲染、CSP 运行时效果 | 本机无法制造 |
+| 覆盖率数字 | 未接 `cargo llvm-cov`，G3 第 1 条只能是未实测 |
+| 六个产品分叉（账号付费、热键手感、多屏、听写注入、加密、遥测） | 未拍板；当前按可回滚的 A 选项落地 |

@@ -278,3 +278,18 @@
 | C1–C10 文档矛盾 | 已修 | `01/02/03/04`、`ADR-0012`、`00-baseline` |
 
 **明确未修**：真机与三平台验证、`ask_typed` 截图指画、INV-2/5/6/8 端到端用例、覆盖率测量、T2/T3/T4 的平台级重写、六个产品分叉。
+
+## 附录 D 修复状态（2026-11-24 晚，第二轮批次）
+
+附录 C 之后又落了三批改动。它们只关掉下面这几条，其余状态仍是附录 C 的原话。
+
+| 编号 | 状态 | 落地位置 | 证据 |
+|---|---|---|---|
+| Windows 上删账号删不掉数据库（os error 32） | 已修 | `store::close()` + `deletion` 第 1 步先关句柄 | `deletion` › `deletion_releases_the_database_handle_before_removing_files` |
+| 删除报告永远说 ok（逐表失败被 `map(|_| ())` 吞掉） | 已修 | `deletion::execute` 第 1 步把失败带进报告 | `deletion` › `a_table_that_refuses_to_empty_fails_step_one` |
+| X3 出站外发（原“上传批准”死代码） | 已修（改为默认 Ask + `tools.allow_domains`） | `tools/policy.rs`、`tools/net.rs::host_allowed`、`config.rs` | `tools policy` › `external_asks_unless_the_host_is_allowlisted`；`tools net` › `the_allowlist_covers_subdomains_but_not_lookalikes` |
+| C1 截图保留期开关无人使用 | 已修（删掉 `keep_screenshots_hours`，口径统一为仅内存 30s） | `config.rs`、`02-sdd.md` §19 | 配置往返用例 |
+| DB-3/DB-4/DB-5 F3 数据层（`approvals`、`artifacts`、FTS、`pause_reason`） | 已修 | M003、`store/mod.rs`、`runner.rs` | `store mod` › v3 迁移、批准一次性、产物重开、FTS 触发器、暂停原因；`e2e_agent` › `writes_a_file_then_finishes_with_evidence` |
+
+仍然未修：X4（opt-in 落盘密钥无主密码）、X7 里“屏幕文本”一项不存在（屏幕只以图像进入，工具结果与用户回答已围栏）、D5（外键要重建表）、D10（读写分离）、U9/T2/T3（平台重写）、U3 的截图指画、T1 的应用自有命令 ACL（与 `withGlobalTauri` 绑定）。逐条理由见 `06-acceptance.md` §7。
+
