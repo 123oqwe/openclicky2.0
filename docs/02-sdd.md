@@ -195,6 +195,8 @@ pub trait Secrets: Send + Sync {
 
 #### 4.2 `annotations.rs`
 
+**几何类型位置（v1.3）**：`Point`/`Rect`/`Stroke`/`StrokeKind`/`PointerItem`/`PointerPlan` 定义在 `geom.rs`，它对任何模块零依赖。`ports.rs` 与 `annotations.rs` 都只依赖 `geom`，从而消除此前 `ports → annotations → ports` 的模块循环（`annotations` 仍 `pub use` 这些类型，调用点不变）。
+
 ```rust
 pub enum Shape {
     Circle { cx: f64, cy: f64, r: f64 },
