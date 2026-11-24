@@ -87,9 +87,9 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          find apps/desktop/target/release/bundle -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.msi' -o -name '*.AppImage' -o -name '*.deb' \) -exec cp {} dist/ \; 2>/dev/null || true
-          if [ -d "apps/desktop/target/release/bundle/macos/OpenClicky.app" ]; then
-            (cd apps/desktop/target/release/bundle/macos && zip -qr "$GITHUB_WORKSPACE/dist/OpenClicky.app.zip" OpenClicky.app)
+          find target/release/bundle -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.msi' -o -name '*.AppImage' -o -name '*.deb' \) -exec cp {} dist/ \; 2>/dev/null || true
+          if [ -d "target/release/bundle/macos/OpenClicky.app" ]; then
+            (cd target/release/bundle/macos && zip -qr "$GITHUB_WORKSPACE/dist/OpenClicky.app.zip" OpenClicky.app)
           fi
           git rev-parse HEAD > dist/COMMIT
           git describe --tags --always >> dist/COMMIT
