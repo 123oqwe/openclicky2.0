@@ -181,3 +181,49 @@ fn injector_target_kind_is_passed_through() {
     // Just assert the fake is wired; teaching cards are exercised in prompt tests.
     assert_eq!(h.injector.focused().unwrap().app, "Final Cut Pro");
 }
+
+#[test]
+fn a_gesture_puts_the_circled_region_into_the_prompt() {
+    use openclicky_core::geom::{Point, Trail};
+    let h = harness(HarnessOpts::default());
+    let mut trail = Trail::default();
+    for (x, y) in [
+        (100.0, 100.0),
+        (300.0, 100.0),
+        (300.0, 200.0),
+        (100.0, 200.0),
+    ] {
+        trail.push(Point { x, y });
+    }
+    let engine = VoiceEngine::new(h.deps.clone());
+    engine.on_hotkey_down().unwrap();
+    engine.on_hotkey_up_with_trail(Some(trail)).unwrap();
+
+    let req = h.chat.last_request().expect("a request was made");
+    // 2880-physical display shrinks to 1280: x0.8889 in logical space.
+    assert!(
+        req.system.contains("the user circled"),
+        "prompt: {}",
+        req.system
+    );
+    assert!(
+        req.system.contains("w=178"),
+        "width in picture px: {}",
+        req.system
+    );
+    assert!(
+        req.system.contains("h=89"),
+        "height in picture px: {}",
+        req.system
+    );
+}
+
+#[test]
+fn no_gesture_leaves_the_prompt_clean() {
+    let h = harness(HarnessOpts::default());
+    let engine = VoiceEngine::new(h.deps.clone());
+    engine.on_hotkey_down().unwrap();
+    engine.on_hotkey_up().unwrap();
+    let req = h.chat.last_request().expect("a request was made");
+    assert!(!req.system.contains("the user circled"));
+}

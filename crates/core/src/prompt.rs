@@ -16,6 +16,8 @@ pub struct PromptContext<'a> {
     pub language: Option<&'a str>,
     pub style_prefs: &'a [String],
     pub user_drawing: bool,
+    /// Region the user circled, in picture pixels of `region_screen`.
+    pub drawing_region: Option<(usize, crate::geom::Rect)>,
 }
 
 pub fn system_prompt(ctx: &PromptContext<'_>) -> String {
@@ -100,7 +102,13 @@ pub fn system_prompt(ctx: &PromptContext<'_>) -> String {
             out.push_str(&format!("answer in this language: {lang}\n"));
         }
     }
-    if ctx.user_drawing {
+    if let Some((screen, r)) = ctx.drawing_region {
+        out.push_str(&format!(
+            "\nthe user circled an area while asking: screen{} picture px x={:.0} y={:.0} w={:.0} h={:.0}.\n\
+             answer about what is inside that region, not about other similar-looking elements.\n",
+            screen, r.x, r.y, r.w, r.h
+        ));
+    } else if ctx.user_drawing {
         out.push_str(
             "\nthe user drew on the screen while asking: the strokes are the thing they mean.\n\
              answer about the circled area, not about other similar-looking elements.\n",
@@ -214,6 +222,7 @@ mod tests {
             language: Some("zh"),
             style_prefs: prefs,
             user_drawing: true,
+            drawing_region: None,
         }
     }
 
@@ -279,6 +288,7 @@ mod tests {
             language: None,
             style_prefs: &[],
             user_drawing: false,
+            drawing_region: None,
         });
         assert!(!p.contains("what you remember"));
         assert!(!p.contains("frontmost app"));

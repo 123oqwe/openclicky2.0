@@ -85,6 +85,20 @@ pub fn picture_shrink(display: &DisplayInfo) -> f64 {
     }
 }
 
+/// Inverse of `to_global`: global logical point -> picture pixels.
+pub fn to_picture(display: &DisplayInfo, p: Point) -> Point {
+    let scale = if display.scale > 0.0 {
+        display.scale
+    } else {
+        1.0
+    };
+    let factor = scale * picture_shrink(display);
+    Point::new(
+        (p.x - display.origin_x) * factor,
+        (p.y - display.origin_y) * factor,
+    )
+}
+
 pub fn to_global(display: &DisplayInfo, x_picture: f64, y_picture: f64) -> Point {
     let scale = if display.scale > 0.0 {
         display.scale

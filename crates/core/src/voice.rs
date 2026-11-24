@@ -107,8 +107,14 @@ impl VoiceEngine {
         Ok(())
     }
 
-    /// Finish a session: transcribe, capture, ask, point, speak.
+    /// Finish a session without a gesture.
     pub fn on_hotkey_up(&self) -> Result<AskOutcome> {
+        self.on_hotkey_up_with_trail(None)
+    }
+
+    /// Finish a session: transcribe, capture, ask, point, speak.
+    /// `trail` is the mouse path recorded while the key was held (SRC-PRD B4).
+    pub fn on_hotkey_up_with_trail(&self, trail: Option<crate::geom::Trail>) -> Result<AskOutcome> {
         let started = self.deps.clock.monotonic_ms();
         let clip = self.deps.audio.stop()?;
         if clip.duration_ms() < 200 {
@@ -167,6 +173,35 @@ impl VoiceEngine {
             .map(|l| l.to_string())
             .collect();
 
+        let drawing_region = trail
+            .as_ref()
+            .filter(|t| t.is_meaningful())
+            .and_then(|t| t.bbox())
+            .map(|bbox| {
+                let d = &displays[cursor_display.min(displays.len().saturating_sub(1))];
+                let tl = crate::annotations::to_picture(
+                    d,
+                    crate::geom::Point {
+                        x: bbox.x,
+                        y: bbox.y,
+                    },
+                );
+                let br = crate::annotations::to_picture(
+                    d,
+                    crate::geom::Point {
+                        x: bbox.x + bbox.w,
+                        y: bbox.y + bbox.h,
+                    },
+                );
+                let r = crate::geom::Rect {
+                    x: tl.x.min(br.x),
+                    y: tl.y.min(br.y),
+                    w: (br.x - tl.x).abs(),
+                    h: (br.y - tl.y).abs(),
+                };
+                (d.index, r)
+            });
+
         let ctx = PromptContext {
             app_name: target.as_ref().map(|t| t.app.as_str()),
             teaching_card: card,
@@ -180,7 +215,8 @@ impl VoiceEngine {
                 Some(&config.voice.language)
             },
             style_prefs: &style_prefs,
-            user_drawing: false,
+            user_drawing: drawing_region.is_some(),
+            drawing_region,
         };
         let system = prompt::system_prompt(&ctx);
 
@@ -442,6 +478,7 @@ impl VoiceEngine {
             },
             style_prefs: &[],
             user_drawing: false,
+            drawing_region: None,
         };
         let request = ChatRequest {
             model: model.clone(),

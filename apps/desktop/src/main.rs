@@ -2,6 +2,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use openclicky_core::agent::runner::{AgentDeps, CancelToken};
@@ -282,20 +283,44 @@ fn main() {
             let shortcut = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::Space);
             let release_engine = engine.clone();
             let handle = app.handle().clone();
+            let recording = Arc::new(AtomicBool::new(false));
+            let trail = Arc::new(Mutex::new(openclicky_core::geom::Trail {
+                points: Vec::with_capacity(0),
+            }));
             app.global_shortcut()
-                .on_shortcut(shortcut, move |_app, _s, event| match event.state() {
+                .on_shortcut(shortcut, move |app, _s, event| match event.state() {
                     ShortcutState::Pressed => {
+                        trail.lock().unwrap().points.clear();
+                        recording.store(true, Ordering::SeqCst);
+                        let flag = recording.clone();
+                        let points = trail.clone();
+                        let app_handle = app.clone();
+                        std::thread::spawn(move || {
+                            while flag.load(Ordering::SeqCst) {
+                                if let Ok(p) = app_handle.cursor_position() {
+                                    points
+                                        .lock()
+                                        .unwrap()
+                                        .push(openclicky_core::geom::Point { x: p.x, y: p.y });
+                                }
+                                std::thread::sleep(std::time::Duration::from_millis(30));
+                            }
+                        });
                         let _ = release_engine.on_hotkey_down();
                     }
                     ShortcutState::Released => {
+                        recording.store(false, Ordering::SeqCst);
                         let engine = release_engine.clone();
                         let handle = handle.clone();
-                        std::thread::spawn(move || match engine.on_hotkey_up() {
-                            Ok(o) => {
-                                let _ = handle.emit("answer", o.answer_text);
-                            }
-                            Err(e) => {
-                                let _ = handle.emit("error", e.user_message());
+                        let sampled = trail.lock().unwrap().clone();
+                        std::thread::spawn(move || {
+                            match engine.on_hotkey_up_with_trail(Some(sampled)) {
+                                Ok(o) => {
+                                    let _ = handle.emit("answer", o.answer_text);
+                                }
+                                Err(e) => {
+                                    let _ = handle.emit("error", e.user_message());
+                                }
                             }
                         });
                     }
