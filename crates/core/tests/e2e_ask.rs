@@ -64,12 +64,29 @@ fn capture_happens_exactly_once_per_question() {
 
 #[test]
 fn short_press_is_rejected_and_not_charged() {
-    let h = harness(HarnessOpts::default());
-    // The audio fake always returns 1200ms, so simulate the guard directly.
-    let clip = h.audio.stop().unwrap();
-    assert!(clip.duration_ms() >= 200);
-    let err = openclicky_core::dictation::terminal_safe("");
-    assert!(err.is_empty());
+    let h = harness(HarnessOpts {
+        audio_ms: 199,
+        ..Default::default()
+    });
+    let engine = VoiceEngine::new(h.deps.clone());
+    engine.on_hotkey_down().unwrap();
+    let err = engine.on_hotkey_up().unwrap_err();
+    assert_eq!(err.code(), "E_SHORT");
+    assert_eq!(engine.state(), State::Idle);
+    assert_eq!(
+        h.screen.capture_count(),
+        0,
+        "no capture for a rejected press"
+    );
+    let now = chrono::Utc::now();
+    let usage = h
+        .store
+        .usage_between(
+            now - chrono::Duration::hours(1),
+            now + chrono::Duration::hours(1),
+        )
+        .unwrap();
+    assert!(usage.is_empty(), "a 199ms press costs nothing");
 }
 
 #[test]

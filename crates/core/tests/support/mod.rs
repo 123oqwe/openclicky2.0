@@ -513,6 +513,7 @@ pub struct Harness {
 
 pub struct HarnessOpts {
     pub transcript: String,
+    pub audio_ms: usize,
     pub chat: Vec<ChatResponse>,
     pub target: Option<TargetInfo>,
     pub tts_fail: bool,
@@ -523,6 +524,7 @@ impl Default for HarnessOpts {
     fn default() -> Self {
         Self {
             transcript: "这个按钮是干什么的".into(),
+            audio_ms: 1200,
             chat: vec![ScriptedChat::text("点了它会导出。")],
             target: None,
             tts_fail: false,
@@ -535,7 +537,7 @@ pub fn harness(opts: HarnessOpts) -> Harness {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(Store::open_memory().unwrap());
     let screen = FakeScreen::new();
-    let audio = FakeAudio::new(1200);
+    let audio = FakeAudio::new(opts.audio_ms);
     let stt = FakeTranscriber::new(&opts.transcript);
     let chat = ScriptedChat::new(opts.chat);
     let speech = if opts.tts_fail {

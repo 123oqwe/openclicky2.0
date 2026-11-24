@@ -69,31 +69,66 @@ pub fn guard_url(url: &str, allow_private: bool) -> Result<String> {
 }
 
 pub fn is_private_host(host: &str) -> bool {
-    let h = host.trim_start_matches('[').trim_end_matches(']');
-    let lower = h.to_ascii_lowercase();
-    if lower == "localhost" || lower.ends_with(".localhost") || lower == "metadata.google.internal"
-    {
+    let h = host
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .to_ascii_lowercase();
+    if h == "localhost" || h.ends_with(".localhost") || h == "metadata.google.internal" {
         return true;
     }
-    if lower == "::1"
-        || lower.starts_with("fc")
-        || lower.starts_with("fd")
-        || lower.starts_with("fe80")
-    {
+    if h == "::1" || h.starts_with("fc") || h.starts_with("fd") || h.starts_with("fe80") {
         return true;
     }
-    let parts: Vec<&str> = lower.split('.').collect();
-    if parts.len() == 4 {
-        if let (Ok(a), Ok(b)) = (parts[0].parse::<u8>(), parts[1].parse::<u8>()) {
-            return a == 127
-                || a == 10
-                || (a == 172 && (16..=31).contains(&b))
-                || (a == 192 && b == 168)
-                || (a == 169 && b == 254)
-                || a == 0;
+    if !h.chars().all(|c| c.is_ascii_alphanumeric() || c == '.') {
+        return false;
+    }
+    let Some(addr) = inet_aton(&h) else {
+        return false;
+    };
+    let octets = addr.octets();
+    let (a, b) = (octets[0], octets[1]);
+    a == 0
+        || a == 10
+        || a == 127
+        || (a == 172 && (16..=31).contains(&b))
+        || (a == 192 && b == 168)
+        || (a == 169 && b == 254)
+        || (a == 100 && (64..=127).contains(&b))
+}
+
+/// Accept the legacy shorthands (`127.1`, `2130706433`, `0x7f.1`) the way
+/// `inet_aton` does, so the guard cannot be bypassed by notation.
+fn inet_aton(s: &str) -> Option<std::net::Ipv4Addr> {
+    let parts: Vec<&str> = s.split('.').collect();
+    if parts.is_empty() || parts.len() > 4 {
+        return None;
+    }
+    let mut nums: Vec<u32> = Vec::with_capacity(parts.len());
+    for p in &parts {
+        let n = if let Some(hex) = p.strip_prefix("0x") {
+            u32::from_str_radix(hex, 16).ok()?
+        } else if p.len() > 1 && p.starts_with('0') {
+            u32::from_str_radix(&p[1..], 8).ok()?
+        } else {
+            p.parse::<u32>().ok()?
+        };
+        nums.push(n);
+    }
+    let value: u64 = match nums.len() {
+        1 => nums[0] as u64,
+        2 => ((nums[0] as u64) << 24) | nums[1] as u64,
+        3 => ((nums[0] as u64) << 24) | ((nums[1] as u64) << 16) | nums[2] as u64,
+        _ => {
+            ((nums[0] as u64) << 24)
+                | ((nums[1] as u64) << 16)
+                | ((nums[2] as u64) << 8)
+                | nums[3] as u64
         }
+    };
+    if value > u32::MAX as u64 {
+        return None;
     }
-    false
+    Some(std::net::Ipv4Addr::from(value as u32))
 }
 
 /// Every host the process may talk to (used by the invariant check).
@@ -131,6 +166,19 @@ mod tests {
             "http://172.20.0.1/x",
         ] {
             assert!(guard_url(url, false).is_err(), "{url} should be blocked");
+        }
+    }
+
+    #[test]
+    fn blocks_shorthand_ipv4_forms() {
+        for url in [
+            "http://127.1/x",
+            "http://2130706433/x",
+            "http://0x7f.0.0.1/x",
+            "http://127.0.0.2/x",
+            "http://100.64.0.1/x",
+        ] {
+            assert!(guard_url(url, false).is_err(), "{url} must be blocked");
         }
     }
 
