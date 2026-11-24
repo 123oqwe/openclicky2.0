@@ -26,3 +26,24 @@ impl Singleton {
         Ok(Self { _file: file })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn second_instance_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("openclicky.lock");
+        let first = Singleton::acquire(&path).unwrap();
+        assert!(
+            Singleton::acquire(&path).is_err(),
+            "second acquire must fail"
+        );
+        drop(first);
+        assert!(
+            Singleton::acquire(&path).is_ok(),
+            "lock is released on drop"
+        );
+    }
+}
