@@ -17,6 +17,7 @@ struct Ctx {
     runner: TaskRunner,
     _dir: tempfile::TempDir,
     store: Arc<Store>,
+    probe: Arc<FakeProbe>,
 }
 
 fn script(responses: Vec<ChatResponse>) -> Ctx {
@@ -37,6 +38,7 @@ fn script(responses: Vec<ChatResponse>) -> Ctx {
     );
     let workspace = dir.path().join("workspace");
     std::fs::create_dir_all(&workspace).unwrap();
+    let probe = FakeProbe::allowing();
     let deps = Arc::new(AgentDeps {
         store: store.clone(),
         chat,
@@ -46,6 +48,7 @@ fn script(responses: Vec<ChatResponse>) -> Ctx {
         memory,
         http: ScriptedHttp::new(vec![]),
         commands: FakeCommands::new(),
+        permissions: probe.clone(),
         workspace,
         model: "fake-model".into(),
         max_steps: 30,
@@ -57,6 +60,7 @@ fn script(responses: Vec<ChatResponse>) -> Ctx {
         runner: TaskRunner::new(deps),
         _dir: dir,
         store,
+        probe,
     }
 }
 
@@ -219,4 +223,52 @@ fn shell_is_denied_when_disabled() {
     c.runner.approve(&task.id).unwrap();
     let outcome = c.runner.step(&task.id).unwrap();
     assert!(outcome.message.contains("disabled") || outcome.message.contains("shell"));
+}
+
+// ---- F3 red tests: these describe the contract, not the current behaviour ----
+
+#[test]
+fn write_outside_workspace_asks_instead_of_failing() {
+    // SDD §11 / tech-prd SEC-4: Write(outside workspace) => WaitingApproval.
+    // Today the sandbox rejects it with a tool failure, so this is red.
+    let c = script(vec![
+        tool_call("fs_write", json!({"path":"../escape.txt","content":"x"})),
+        tool_call("finish", json!({"result":"done"})),
+    ]);
+    let task = c.runner.create("写到工作区外").unwrap();
+    let outcome = c.runner.step(&task.id).unwrap();
+    assert_eq!(outcome.state, TaskState::WaitingApproval);
+}
+
+#[test]
+fn approving_an_outside_write_lets_it_through_once() {
+    let c = script(vec![
+        tool_call("fs_write", json!({"path":"../approved.txt","content":"ok"})),
+        tool_call("finish", json!({"result":"done"})),
+    ]);
+    let task = c.runner.create("批准后写到工作区外").unwrap();
+    let outcome = c.runner.step(&task.id).unwrap();
+    assert_eq!(outcome.state, TaskState::WaitingApproval);
+    let t = c.runner.get(&task.id).unwrap();
+    let target = c.runner.tool_ctx(&t).workspace.join("../approved.txt");
+    assert!(!target.exists(), "nothing may be written before approval");
+
+    c.runner.approve(&task.id).unwrap();
+    let outcome = c.runner.step(&task.id).unwrap();
+    assert_eq!(outcome.tool.as_deref(), Some("fs_write"));
+    assert!(target.exists(), "approved write should land");
+}
+
+#[test]
+fn revoked_permission_blocks_state_changing_tools() {
+    let c = script(vec![
+        tool_call("fs_write", json!({"path":"blocked.txt","content":"x"})),
+        tool_call("finish", json!({"result":"done"})),
+    ]);
+    let task = c.runner.create("写文件").unwrap();
+    c.probe.deny_accessibility();
+    let outcome = c.runner.step(&task.id).unwrap();
+    assert_eq!(outcome.state, TaskState::WaitingApproval);
+    let t = c.runner.get(&task.id).unwrap();
+    assert!(!c.runner.tool_ctx(&t).workspace.join("blocked.txt").exists());
 }

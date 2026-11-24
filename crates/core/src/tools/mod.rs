@@ -25,6 +25,8 @@ pub enum ToolOutcome {
 
 pub struct ToolCtx {
     pub workspace: std::path::PathBuf,
+    /// Set only after the user approved writing outside the workspace.
+    pub allow_outside_write: bool,
     pub task_id: String,
     pub http: Arc<dyn HttpTransport>,
     pub clock: Arc<dyn Clock>,
@@ -36,6 +38,14 @@ pub struct ToolCtx {
 pub trait Tool: Send + Sync {
     fn name(&self) -> &'static str;
     fn risk(&self, args: &Value) -> Risk;
+    /// True when the target path resolves outside the workspace.
+    fn outside_workspace(&self, _args: &Value, _workspace: &std::path::Path) -> bool {
+        false
+    }
+    /// True when the call sends a local file to an external system.
+    fn uploads_local_file(&self, _args: &Value) -> bool {
+        false
+    }
     fn spec(&self) -> ToolSpec;
     fn run(&self, ctx: &ToolCtx, args: &Value) -> Result<ToolOutcome>;
 }
@@ -258,16 +268,23 @@ impl Tool for FsWrite {
             &["path", "content"],
         )
     }
+    fn outside_workspace(&self, args: &Value, workspace: &std::path::Path) -> bool {
+        args.get("path")
+            .and_then(|v| v.as_str())
+            .map(|p| fs::escapes_workspace(workspace, p))
+            .unwrap_or(false)
+    }
     fn run(&self, ctx: &ToolCtx, args: &Value) -> Result<ToolOutcome> {
         let mode = args
             .get("mode")
             .and_then(|v| v.as_str())
             .unwrap_or("overwrite");
-        let path = fs::write_text(
+        let path = fs::write_text_with(
             &ctx.workspace,
             str_arg(args, "path")?,
             str_arg(args, "content")?,
             mode == "append",
+            ctx.allow_outside_write,
         )?;
         Ok(ToolOutcome::Ok {
             summary: format!("wrote {}", path.display()),
@@ -291,6 +308,12 @@ impl Tool for FsDelete {
             serde_json::json!({ "path": { "type": "string" } }),
             &["path"],
         )
+    }
+    fn outside_workspace(&self, args: &Value, workspace: &std::path::Path) -> bool {
+        args.get("path")
+            .and_then(|v| v.as_str())
+            .map(|p| fs::escapes_workspace(workspace, p))
+            .unwrap_or(false)
     }
     fn run(&self, ctx: &ToolCtx, args: &Value) -> Result<ToolOutcome> {
         let trashed = fs::trash(&ctx.workspace, str_arg(args, "path")?)?;

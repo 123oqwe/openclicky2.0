@@ -110,6 +110,13 @@ impl fmt::Debug for SecretString {
     }
 }
 
+/// Re-checked before every tool call and before every capture (INV-7 / INV-D4).
+pub trait PermissionProbe: Send + Sync {
+    fn screen_recording(&self) -> bool;
+    fn accessibility(&self) -> bool;
+    fn microphone(&self) -> bool;
+}
+
 pub trait Secrets: Send + Sync {
     fn get(&self, key: &str) -> Result<Option<SecretString>>;
     fn set(&self, key: &str, value: &SecretString) -> Result<()>;
@@ -153,7 +160,9 @@ pub struct DisplayShot {
 
 pub trait ScreenSource: Send + Sync {
     fn displays(&self) -> Result<Vec<DisplayInfo>>;
-    fn capture_all(&self) -> Result<Vec<DisplayShot>>;
+    /// The guard parameter is the enforcement: without a `CaptureGuard`
+    /// (constructible only through `CaptureGate::authorize`) this cannot be called.
+    fn capture_all(&self, guard: &crate::privacy::CaptureGuard<'_>) -> Result<Vec<DisplayShot>>;
 }
 
 // ---------------------------------------------------------------- audio

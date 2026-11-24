@@ -40,8 +40,9 @@ impl CaptureGate {
         Self::default()
     }
 
-    /// Open the gate. Only user-initiated actions may construct a reason.
-    pub fn open(&self, reason: CaptureReason) -> CaptureGuard<'_> {
+    /// Authorise one capture. Only user-initiated actions may construct a reason.
+    /// The returned guard is the capability: `ScreenSource::capture_all` requires it.
+    pub fn authorize(&self, reason: CaptureReason) -> CaptureGuard<'_> {
         self.opens.fetch_add(1, Ordering::SeqCst);
         self.last_reason.store(reason as u64, Ordering::SeqCst);
         CaptureGuard { gate: self, reason }
@@ -67,5 +68,10 @@ impl<'a> CaptureGuard<'a> {
     /// Closes the gate; afterwards capture must not be attempted.
     pub fn close(self) -> u64 {
         self.gate.opens()
+    }
+
+    /// Why the gate was opened (audit / tests).
+    pub fn reason(&self) -> CaptureReason {
+        self.reason
     }
 }

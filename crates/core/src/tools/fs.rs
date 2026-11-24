@@ -50,6 +50,21 @@ pub fn resolve_in_workspace(root: &Path, rel: &str) -> Result<PathBuf> {
     Ok(joined)
 }
 
+/// Does this path leave the workspace? Checked before asking for approval.
+pub fn escapes_workspace(_root: &Path, rel: &str) -> bool {
+    let rel = rel.trim();
+    if rel.is_empty() {
+        return false;
+    }
+    let candidate = Path::new(rel);
+    if candidate.is_absolute() {
+        return true;
+    }
+    candidate
+        .components()
+        .any(|c| matches!(c, Component::ParentDir))
+}
+
 pub fn read_text(root: &Path, rel: &str, max: usize) -> Result<String> {
     let path = resolve_in_workspace(root, rel)?;
     let bytes = std::fs::read(&path).map_err(|e| Error::Io(e.to_string()))?;
@@ -59,7 +74,36 @@ pub fn read_text(root: &Path, rel: &str, max: usize) -> Result<String> {
 
 /// Atomic write: temp file in the same directory then rename.
 pub fn write_text(root: &Path, rel: &str, content: &str, append: bool) -> Result<PathBuf> {
-    let path = resolve_in_workspace(root, rel)?;
+    write_text_with(root, rel, content, append, false)
+}
+
+/// `allow_outside` is only ever true after an explicit user approval; the write
+/// is still confined to paths whose parent directory exists.
+pub fn write_text_with(
+    root: &Path,
+    rel: &str,
+    content: &str,
+    append: bool,
+    allow_outside: bool,
+) -> Result<PathBuf> {
+    let path = if allow_outside && escapes_workspace(root, rel) {
+        let candidate = Path::new(rel);
+        let abs = if candidate.is_absolute() {
+            candidate.to_path_buf()
+        } else {
+            root.join(candidate)
+        };
+        let normalised = normalise(&abs)?;
+        let parent = normalised
+            .parent()
+            .ok_or_else(|| Error::PolicyDenied("路径没有父目录".into()))?;
+        if !parent.exists() {
+            return Err(Error::PolicyDenied("批准的目标目录不存在".into()));
+        }
+        normalised
+    } else {
+        resolve_in_workspace(root, rel)?
+    };
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| Error::Io(e.to_string()))?;
     }
@@ -86,6 +130,23 @@ pub fn write_text(root: &Path, rel: &str, content: &str, append: bool) -> Result
 }
 
 /// Delete = move into `.trash/` so a destructive action stays reversible.
+/// Collapse `..` without touching the filesystem (lexical normalisation).
+fn normalise(path: &Path) -> Result<PathBuf> {
+    let mut out = PathBuf::new();
+    for comp in path.components() {
+        match comp {
+            Component::ParentDir => {
+                if !out.pop() {
+                    return Err(Error::PolicyDenied("路径跳出了根目录".into()));
+                }
+            }
+            Component::CurDir => {}
+            other => out.push(other.as_os_str()),
+        }
+    }
+    Ok(out)
+}
+
 pub fn trash(root: &Path, rel: &str) -> Result<PathBuf> {
     let path = resolve_in_workspace(root, rel)?;
     if !path.exists() {

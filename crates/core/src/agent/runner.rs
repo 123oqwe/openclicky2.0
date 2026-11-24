@@ -24,6 +24,7 @@ pub struct AgentDeps {
     pub memory: Arc<Memory>,
     pub http: Arc<dyn crate::ports::HttpTransport>,
     pub commands: Arc<dyn crate::ports::CommandRunner>,
+    pub permissions: Arc<dyn crate::ports::PermissionProbe>,
     pub workspace: std::path::PathBuf,
     pub model: String,
     pub max_steps: u32,
@@ -118,8 +119,13 @@ impl TaskRunner {
     }
 
     pub fn tool_ctx(&self, task: &Task) -> ToolCtx {
+        self.tool_ctx_with(task, false)
+    }
+
+    pub fn tool_ctx_with(&self, task: &Task, allow_outside_write: bool) -> ToolCtx {
         ToolCtx {
             workspace: self.deps.workspace.join("tasks").join(&task.id),
+            allow_outside_write,
             task_id: task.id.clone(),
             http: self.deps.http.clone(),
             clock: self.deps.clock.clone(),
@@ -289,18 +295,17 @@ impl TaskRunner {
     }
 
     fn resume_pending(&self, task: &mut Task, pending: PendingCall) -> Result<StepOutcome> {
-        let ctx = self.tool_ctx(task);
         let risk = self.deps.tools.risk_of(&pending.name, &pending.args);
         let now = self.deps.clock.now();
         let approvals = self.approvals_from(task);
-        let decision = match risk {
-            Risk::Destructive => Policy.decide(risk, &approvals, now),
-            _ => Approval::Allow,
-        };
+        let call = self.call_context(task, &pending.name, &pending.args, risk);
+        let decision = Policy.decide(call, &approvals, now);
         match decision {
             Approval::Allow => {
                 task.checkpoint.pending_call = None;
                 let name = pending.name.clone();
+                let approved_outside = call.outside_workspace;
+                let ctx = self.tool_ctx_with(task, approved_outside);
                 let outcome = self.run_tool(task, &ctx, &pending)?;
                 self.after_tool(task, name, outcome)
             }
@@ -329,6 +334,28 @@ impl TaskRunner {
                 tool: Some(pending.name),
                 message: "等待批准".into(),
             }),
+        }
+    }
+
+    fn call_context(
+        &self,
+        task: &Task,
+        name: &str,
+        args: &serde_json::Value,
+        risk: Risk,
+    ) -> crate::tools::policy::CallContext {
+        let workspace = self.deps.workspace.join("tasks").join(&task.id);
+        let (outside, upload) = match self.deps.tools.get(name) {
+            Some(t) => (
+                t.outside_workspace(args, &workspace),
+                t.uploads_local_file(args),
+            ),
+            None => (false, false),
+        };
+        crate::tools::policy::CallContext {
+            risk,
+            outside_workspace: outside,
+            uploads_local_file: upload,
         }
     }
 
@@ -373,9 +400,30 @@ impl TaskRunner {
         }
 
         let risk = self.deps.tools.risk_of(&name, &args);
+
+        // Re-check the OS permissions before every state-changing call (INV-7).
+        if !matches!(risk, Risk::Read) && !self.deps.permissions.accessibility() {
+            task.checkpoint.pending_call = Some(PendingCall {
+                name: name.clone(),
+                args,
+            });
+            self.persist(
+                task,
+                TaskState::WaitingApproval,
+                None,
+                Some("permission".into()),
+            )?;
+            return Ok(StepOutcome {
+                state: task.state,
+                tool: Some(name),
+                message: "辅助功能权限已被撤销，等待恢复".into(),
+            });
+        }
+
         let now = self.deps.clock.now();
         let approvals = self.approvals_from(task);
-        let decision = Policy.decide(risk, &approvals, now);
+        let call = self.call_context(task, &name, &args, risk);
+        let decision = Policy.decide(call, &approvals, now);
         match decision {
             Approval::Allow => {}
             Approval::Deny => {

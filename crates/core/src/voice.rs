@@ -117,10 +117,16 @@ impl VoiceEngine {
         let session_id = self.deps.store.insert_session("ask", Utc::now())?;
 
         // Capture is authorised here and nowhere else (TR-02).
+        if !self.deps.permissions.screen_recording() {
+            self.set_state(State::Idle);
+            return Err(Error::NoPermission(
+                crate::error::Permission::ScreenRecording,
+            ));
+        }
         let shots = {
-            let gate = self.deps.gate.open(CaptureReason::Hotkey);
-            let result = self.deps.screen.capture_all();
-            gate.close();
+            let guard = self.deps.gate.authorize(CaptureReason::Hotkey);
+            let result = self.deps.screen.capture_all(&guard);
+            guard.close();
             result?
         };
         let capture_ms = self.deps.clock.monotonic_ms().saturating_sub(started);

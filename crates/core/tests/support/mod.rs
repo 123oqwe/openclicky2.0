@@ -67,7 +67,11 @@ impl ScreenSource for FakeScreen {
     fn displays(&self) -> Result<Vec<DisplayInfo>> {
         Ok(self.displays.lock().unwrap().clone())
     }
-    fn capture_all(&self) -> Result<Vec<DisplayShot>> {
+    fn capture_all(
+        &self,
+        guard: &openclicky_core::privacy::CaptureGuard<'_>,
+    ) -> Result<Vec<DisplayShot>> {
+        let _ = guard.reason();
         *self.captures.lock().unwrap() += 1;
         Ok(self
             .displays
@@ -430,6 +434,40 @@ impl HttpTransport for ScriptedHttp {
 }
 
 #[derive(Default)]
+pub struct FakeProbe {
+    pub accessibility: std::sync::atomic::AtomicBool,
+    pub screen: std::sync::atomic::AtomicBool,
+    pub microphone: std::sync::atomic::AtomicBool,
+}
+
+impl FakeProbe {
+    pub fn allowing() -> std::sync::Arc<Self> {
+        use std::sync::atomic::AtomicBool;
+        std::sync::Arc::new(Self {
+            accessibility: AtomicBool::new(true),
+            screen: AtomicBool::new(true),
+            microphone: AtomicBool::new(true),
+        })
+    }
+    pub fn deny_accessibility(&self) {
+        self.accessibility
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl PermissionProbe for FakeProbe {
+    fn screen_recording(&self) -> bool {
+        self.screen.load(std::sync::atomic::Ordering::SeqCst)
+    }
+    fn accessibility(&self) -> bool {
+        self.accessibility.load(std::sync::atomic::Ordering::SeqCst)
+    }
+    fn microphone(&self) -> bool {
+        self.microphone.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+#[derive(Default)]
 pub struct FakeCommands {
     pub calls: Mutex<Vec<String>>,
 }
@@ -466,6 +504,7 @@ pub struct Harness {
     pub injector: Arc<FakeInjector>,
     pub http: Arc<ScriptedHttp>,
     pub commands: Arc<FakeCommands>,
+    pub probe: Arc<FakeProbe>,
     pub store: Arc<Store>,
     pub events: Arc<Mutex<Vec<AppEvent>>>,
     pub _dir: tempfile::TempDir,
@@ -512,6 +551,7 @@ pub fn harness(opts: HarnessOpts) -> Harness {
     let http = ScriptedHttp::new(opts.http);
     let commands = FakeCommands::new();
     let events = Arc::new(Mutex::new(Vec::new()));
+    let probe = FakeProbe::allowing();
     let sink = {
         let e = events.clone();
         Arc::new(move |ev: AppEvent| e.lock().unwrap().push(ev)) as openclicky_core::deps::EventSink
@@ -531,6 +571,7 @@ pub fn harness(opts: HarnessOpts) -> Harness {
         speech.clone(),
         overlay.clone(),
         injector.clone(),
+        probe.clone(),
         store.clone(),
         memory,
         config,
@@ -547,6 +588,7 @@ pub fn harness(opts: HarnessOpts) -> Harness {
         injector,
         http,
         commands,
+        probe,
         store,
         events,
         _dir: dir,
