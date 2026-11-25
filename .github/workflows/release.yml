@@ -104,6 +104,10 @@ jobs:
 
   publish:
     needs: [build, desktop]
+    # A manual dispatch has no tag to publish under, so it builds and stops. Only
+    # a v* tag creates a Release; otherwise every dispatch would end red for a
+    # reason that is not a defect.
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
