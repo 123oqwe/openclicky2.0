@@ -14,7 +14,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 # Where the tests live. The docs branch does not carry code, so we read a branch.
-CANDIDATES = [os.environ.get("TDS_SOURCE_BRANCH", ""), "HEAD", "feat/impl", "origin/feat/impl"]
+CANDIDATES = [os.environ.get("TDS_SOURCE_BRANCH", ""), "HEAD"]
 
 
 def source_branch():
@@ -194,8 +194,8 @@ def tests_on_branch(branch):
 def main():
     branch = source_branch()
     if branch is None:
-        print("tds-evidence: no source branch available (tried feat/impl, origin/feat/impl, HEAD)")
-        print("CI must fetch the implementation branch before running this check.")
+        print("tds-evidence: no source tree available")
+        print("The matrix is generated from the tests in the tree under test.")
         return 2
     have = tests_on_branch(branch)
     print(f"tds-evidence: reading tests from {branch}")

@@ -21,8 +21,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Fetch the implementation branch (tests live there)
-        run: git fetch --no-tags origin feat/impl:refs/remotes/origin/feat/impl || true
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -53,7 +51,7 @@ jobs:
             echo "workspace present: running code checks"
           else
             echo "has_code=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::no Cargo workspace on this ref yet (code lives on the implementation branch); code checks are skipped, not passed"
+            echo "::notice::no Cargo workspace on this ref; code checks are skipped, not passed. After the code lands on main this branch is unreachable."
           fi
 
   rust:
