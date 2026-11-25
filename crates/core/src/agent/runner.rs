@@ -689,7 +689,7 @@ impl TaskRunner {
             code: code.clone(),
             created_at: now,
         })?;
-        let fenced = crate::prompt::wrap_tool_result(&name, &summary);
+        let fenced = crate::prompt::wrap_tool_result(&name, &outcome.model_text());
         if !ok {
             task.checkpoint.facts.push(format!("{name} 失败：{fenced}"));
         } else {

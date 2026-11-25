@@ -19,6 +19,7 @@ struct Ctx {
     store: Arc<Store>,
     probe: Arc<FakeProbe>,
     clock: Arc<FakeClock>,
+    chat: Arc<ScriptedChat>,
 }
 
 fn script(responses: Vec<ChatResponse>) -> Ctx {
@@ -35,6 +36,7 @@ fn script_on_disk(responses: Vec<ChatResponse>) -> Ctx {
 
 fn script_with(store: Arc<Store>, dir: tempfile::TempDir, responses: Vec<ChatResponse>) -> Ctx {
     let chat = ScriptedChat::new(responses);
+    let chat_handle = chat.clone();
     // Deterministic time: the approval windows are minutes wide, so tests move
     // the clock instead of sleeping.
     let fake_clock = FakeClock::new();
@@ -76,6 +78,7 @@ fn script_with(store: Arc<Store>, dir: tempfile::TempDir, responses: Vec<ChatRes
         store,
         probe,
         clock: fake_clock,
+        chat: chat_handle,
     }
 }
 
@@ -576,4 +579,36 @@ fn the_fourth_active_task_is_rejected() {
     }
     let err = c.runner.create("第四件事").unwrap_err();
     assert_eq!(err.code(), "E_QUEUE");
+}
+
+#[test]
+fn a_tool_result_reaches_the_model_as_content_not_a_digest() {
+    let body = "quarterly revenue was 42 units and the margin held";
+    let c = script(vec![
+        tool_call("fs_write", json!({"path":"notes.txt","content": body})),
+        tool_call("fs_read", json!({"path":"notes.txt"})),
+        tool_call("finish", json!({"result":"summarised"})),
+    ]);
+    let task = c
+        .runner
+        .create("read my note and tell me what it says")
+        .unwrap();
+    c.runner.step(&task.id).unwrap();
+    c.runner.step(&task.id).unwrap();
+    c.runner.step(&task.id).unwrap();
+
+    let request = c
+        .chat
+        .last_request()
+        .expect("a third turn must have happened");
+    let rendered = request
+        .messages
+        .iter()
+        .map(|m| m.content.clone())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        rendered.contains("quarterly revenue was 42 units"),
+        "the model must receive the file body, not a char count; got: {rendered}"
+    );
 }

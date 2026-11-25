@@ -23,6 +23,32 @@ pub enum ToolOutcome {
     Failed { code: String, message: String },
 }
 
+impl ToolOutcome {
+    /// What the model gets to read. `data` carries the payload a tool actually
+    /// produced; `summary` is a digest for the step log and the UI, and handing
+    /// only the digest to the model makes every read and fetch useless.
+    ///
+    /// Bounded below the fence's own limit so the truncation marker survives.
+    pub fn model_text(&self) -> String {
+        const LIMIT: usize = 7000;
+        let raw = match self {
+            Self::Ok { data, summary } => match data.get("text").and_then(|v| v.as_str()) {
+                Some(text) => text.to_string(),
+                None if data.is_null() => summary.clone(),
+                None => data.to_string(),
+            },
+            Self::Denied { reason } => reason.clone(),
+            Self::Failed { message, .. } => message.clone(),
+        };
+        let count = raw.chars().count();
+        if count <= LIMIT {
+            return raw;
+        }
+        let kept: String = raw.chars().take(LIMIT).collect();
+        format!("{kept}\n[truncated {} chars]", count - LIMIT)
+    }
+}
+
 pub struct ToolCtx {
     pub workspace: std::path::PathBuf,
     /// Set only after the user approved writing outside the workspace.
@@ -416,5 +442,47 @@ impl Tool for Finish {
             summary: "finished".into(),
             data: args.clone(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_tool_payload_is_what_the_model_reads() {
+        let out = ToolOutcome::Ok {
+            summary: "12 chars".into(),
+            data: serde_json::json!({ "text": "the actual file body" }),
+        };
+        assert_eq!(out.model_text(), "the actual file body");
+    }
+
+    #[test]
+    fn a_payload_without_a_text_field_still_arrives() {
+        let out = ToolOutcome::Ok {
+            summary: "2 entries".into(),
+            data: serde_json::json!(["a.txt", "b.txt"]),
+        };
+        assert!(out.model_text().contains("a.txt"));
+    }
+
+    #[test]
+    fn a_huge_payload_is_bounded_and_says_so() {
+        let out = ToolOutcome::Ok {
+            summary: "big".into(),
+            data: serde_json::json!({ "text": "x".repeat(9000) }),
+        };
+        let text = out.model_text();
+        assert!(text.chars().count() < 9000);
+        assert!(text.contains("[truncated 2000 chars]"), "{text}");
+    }
+
+    #[test]
+    fn a_denied_call_reads_as_its_reason() {
+        let out = ToolOutcome::Denied {
+            reason: "用户拒绝".into(),
+        };
+        assert_eq!(out.model_text(), "用户拒绝");
     }
 }
