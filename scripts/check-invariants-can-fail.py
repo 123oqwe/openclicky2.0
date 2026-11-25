@@ -61,6 +61,7 @@ def main(argv):
     for path, old, new, test, what in CASES:
         target = ROOT / path
         original = target.read_text(encoding="utf-8")
+        original_bytes = target.read_bytes()
         if old not in original:
             print(f"FAIL {test}: the line this mutation edits is gone from {path}")
             bad += 1
@@ -75,13 +76,20 @@ def main(argv):
             broke_build = "error[" in mutated.stdout + mutated.stderr
             went_red = mutated.returncode != 0 and not broke_build
         finally:
-            # A fresh write also bumps the mtime, which is what makes cargo
-            # rebuild instead of reusing the mutated artifact.
-            target.write_text(original, encoding="utf-8")
+            # Bytes, not text: write_text translates \n to the platform
+            # separator, so a restore on Windows would leave CRLF behind in a
+            # file that had LF. This also bumps the mtime, which is what makes
+            # cargo rebuild instead of reusing the mutated artifact.
+            target.write_bytes(original_bytes)
 
         if not went_red:
             reason = "the mutation did not compile" if broke_build else "the test still passed"
             print(f"FAIL {test}: {reason} — this case cannot fail, so it proves nothing")
+            bad += 1
+            continue
+
+        if target.read_bytes() != original_bytes:
+            print(f"FAIL {test}: the restore did not reproduce the file byte for byte")
             bad += 1
             continue
 
