@@ -86,9 +86,12 @@ impl TaskRunner {
         Ok(rows
             .iter()
             .filter(|r| {
+                // Fail closed: a row whose state will not parse may still be
+                // holding a slot, and freeing it silently is how three stuck
+                // tasks lock the queue.
                 TaskState::parse(&r.state)
                     .map(|s| s.is_active())
-                    .unwrap_or(false)
+                    .unwrap_or(true)
             })
             .count())
     }
@@ -140,6 +143,7 @@ impl TaskRunner {
             .store
             .task(id)?
             .map(from_row)
+            .transpose()?
             .ok_or_else(|| Error::BadRequest(format!("任务不存在：{id}")))
     }
 
@@ -923,7 +927,9 @@ impl TaskRunner {
         let cutoff = now - WAITING_TIMEOUT;
         let mut expired = Vec::new();
         for row in self.deps.store.stale_waiting(cutoff)? {
-            let mut task = from_row(row);
+            let Ok(mut task) = from_row(row) else {
+                continue;
+            };
             task.epoch += 1;
             task.state = TaskState::Paused;
             task.error_code = Some("waiting_timeout".into());
@@ -950,7 +956,9 @@ impl TaskRunner {
                 None => now.signed_duration_since(row.updated_at) > Duration::minutes(20),
             };
             if stale {
-                let mut task = from_row(row);
+                let Ok(mut task) = from_row(row) else {
+                    continue;
+                };
                 task.epoch += 1;
                 task.state = TaskState::Paused;
                 task.error_code = Some("interrupted".into());
@@ -1035,13 +1043,17 @@ pub fn to_row(t: &Task) -> TaskRow {
     }
 }
 
-pub fn from_row(r: TaskRow) -> Task {
-    Task {
+/// A row that cannot be read is an error, not a guess. Swallowing the parse
+/// reported a healthy task as `Failed` and silently emptied the checkpoint,
+/// which is where one-time grants live.
+pub fn from_row(r: TaskRow) -> Result<Task> {
+    Ok(Task {
         id: r.id,
         name: r.name,
         goal: r.goal,
-        state: TaskState::parse(&r.state).unwrap_or(TaskState::Failed),
-        checkpoint: serde_json::from_str(&r.checkpoint_json).unwrap_or_default(),
+        state: TaskState::parse(&r.state)?,
+        checkpoint: serde_json::from_str(&r.checkpoint_json)
+            .map_err(|e| Error::State(format!("任务检查点无法解析：{e}")))?,
         created_at: r.created_at,
         updated_at: r.updated_at,
         epoch: r.epoch,
@@ -1049,5 +1061,5 @@ pub fn from_row(r: TaskRow) -> Task {
         steps_done: r.steps_done,
         result: r.result,
         error_code: r.error_code,
-    }
+    })
 }

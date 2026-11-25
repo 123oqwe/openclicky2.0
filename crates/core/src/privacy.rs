@@ -16,6 +16,30 @@ pub enum CaptureReason {
 }
 
 impl CaptureReason {
+    /// The number stored for the audit signal. `authorize` writes it and
+    /// `last_reason` reads it; a hand-written match on the read side had drifted
+    /// by one variant and reported the wrong reason.
+    fn code(self) -> u64 {
+        match self {
+            Self::Hotkey => 0,
+            Self::TypedQuestion => 1,
+            Self::OnboardingDemo => 2,
+            Self::UserRetry => 3,
+            Self::Calibration => 4,
+        }
+    }
+
+    fn from_code(code: u64) -> Option<Self> {
+        match code {
+            0 => Some(Self::Hotkey),
+            1 => Some(Self::TypedQuestion),
+            2 => Some(Self::OnboardingDemo),
+            3 => Some(Self::UserRetry),
+            4 => Some(Self::Calibration),
+            _ => None,
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             CaptureReason::Hotkey => "hotkey",
@@ -47,7 +71,7 @@ impl CaptureGate {
     /// The returned guard is the capability: `ScreenSource::capture_all` requires it.
     pub fn authorize(&self, reason: CaptureReason) -> CaptureGuard<'_> {
         self.opens.fetch_add(1, Ordering::SeqCst);
-        self.last_reason.store(reason as u64, Ordering::SeqCst);
+        self.last_reason.store(reason.code(), Ordering::SeqCst);
         CaptureGuard { gate: self, reason }
     }
 
@@ -57,13 +81,7 @@ impl CaptureGate {
     }
 
     pub fn last_reason(&self) -> Option<CaptureReason> {
-        match self.last_reason.load(Ordering::SeqCst) {
-            0 => Some(CaptureReason::Hotkey),
-            1 => Some(CaptureReason::OnboardingDemo),
-            2 => Some(CaptureReason::UserRetry),
-            3 => Some(CaptureReason::Calibration),
-            _ => None,
-        }
+        CaptureReason::from_code(self.last_reason.load(Ordering::SeqCst))
     }
 }
 
@@ -76,5 +94,39 @@ impl<'a> CaptureGuard<'a> {
     /// Why the gate was opened (audit / tests).
     pub fn reason(&self) -> CaptureReason {
         self.reason
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ALL: [CaptureReason; 5] = [
+        CaptureReason::Hotkey,
+        CaptureReason::TypedQuestion,
+        CaptureReason::OnboardingDemo,
+        CaptureReason::UserRetry,
+        CaptureReason::Calibration,
+    ];
+
+    #[test]
+    fn every_reason_survives_the_round_trip() {
+        for reason in ALL {
+            assert_eq!(CaptureReason::from_code(reason.code()), Some(reason));
+        }
+    }
+
+    #[test]
+    fn the_audit_signal_reports_the_reason_that_opened_the_gate() {
+        for reason in ALL {
+            let gate = CaptureGate::new();
+            gate.authorize(reason).close();
+            assert_eq!(gate.last_reason(), Some(reason));
+        }
+    }
+
+    #[test]
+    fn an_unknown_code_is_not_guessed() {
+        assert_eq!(CaptureReason::from_code(9), None);
     }
 }

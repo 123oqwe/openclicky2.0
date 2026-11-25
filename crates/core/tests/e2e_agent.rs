@@ -643,3 +643,38 @@ fn a_remembered_preference_reaches_the_task_prompt() {
         request.system
     );
 }
+
+#[test]
+fn an_unreadable_state_is_an_error_not_a_silent_failure() {
+    let c = script(vec![tool_call("finish", json!({"result": "done"}))]);
+    let task = c.runner.create("做点什么").unwrap();
+    let mut row = c.store.task(&task.id).unwrap().unwrap();
+    row.state = "banana".into();
+    c.store.upsert_task(&row).unwrap();
+
+    let err = c.runner.get(&task.id).unwrap_err();
+    assert!(
+        err.user_message().contains("banana") || err.user_message().contains("状态"),
+        "a corrupt row must say what is wrong, got: {}",
+        err.user_message()
+    );
+}
+
+#[test]
+fn an_unreadable_row_still_counts_against_the_queue() {
+    let c = script(vec![tool_call("finish", json!({"result": "done"}))]);
+    let mut stuck = vec![];
+    for i in 0..3 {
+        let t = c.runner.create(&format!("任务 {i}")).unwrap();
+        let mut row = c.store.task(&t.id).unwrap().unwrap();
+        row.state = "banana".into();
+        c.store.upsert_task(&row).unwrap();
+        stuck.push(t.id);
+    }
+    let err = c.runner.create("第四个").unwrap_err();
+    assert_eq!(
+        err.code(),
+        "E_QUEUE",
+        "three unreadable rows must not free the queue"
+    );
+}
