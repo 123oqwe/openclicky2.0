@@ -41,7 +41,10 @@ impl ToolOutcome {
                 match (single_text, data.get("text").and_then(|v| v.as_str())) {
                     (true, Some(text)) => text.to_string(),
                     (_, None) if data.is_null() => summary.clone(),
-                    _ => data.to_string(),
+                    // Cut the long values first, then serialise. Slicing the
+                    // serialised string instead would drop whichever key sorts
+                    // last, and that key is the url or the path.
+                    _ => short_values(data, LIMIT.saturating_sub(512)).to_string(),
                 }
             }
             Self::Denied { reason } => reason.clone(),
@@ -53,6 +56,29 @@ impl ToolOutcome {
         }
         let kept: String = raw.chars().take(LIMIT).collect();
         format!("{kept}\n[truncated {} chars]", count - LIMIT)
+    }
+}
+
+/// Bound every string inside a JSON value, so the identifying fields survive
+/// when the payload is long.
+fn short_values(value: &serde_json::Value, cap: usize) -> serde_json::Value {
+    use serde_json::Value;
+    match value {
+        Value::String(text) => {
+            let count = text.chars().count();
+            if count <= cap {
+                return value.clone();
+            }
+            let kept: String = text.chars().take(cap).collect();
+            Value::String(format!("{kept}\n[truncated {} chars]", count - cap))
+        }
+        Value::Array(items) => Value::Array(items.iter().map(|v| short_values(v, cap)).collect()),
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(k, v)| (k.clone(), short_values(v, cap)))
+                .collect(),
+        ),
+        other => other.clone(),
     }
 }
 
@@ -474,6 +500,27 @@ mod tests {
         let text = out.model_text();
         assert!(text.contains("https://example.test/page"), "{text}");
         assert!(text.contains("hello"), "{text}");
+    }
+
+    #[test]
+    fn a_long_page_still_says_where_it_came_from() {
+        let out = ToolOutcome::Ok {
+            summary: "9000 chars".into(),
+            data: serde_json::json!({
+                "url": "https://example.test/very/long/page",
+                "text": "x".repeat(9000),
+            }),
+        };
+        let text = out.model_text();
+        assert!(
+            text.contains("https://example.test/very/long/page"),
+            "the url must survive"
+        );
+        assert!(text.contains("[truncated"), "the cut must be visible");
+        assert!(
+            text.chars().count() <= 7000 + 64,
+            "the whole payload stays bounded"
+        );
     }
 
     #[test]
