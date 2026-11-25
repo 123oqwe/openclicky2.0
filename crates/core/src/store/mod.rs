@@ -160,6 +160,9 @@ pub struct ArtifactRow {
 pub struct Store {
     conn: Mutex<Option<Connection>>,
     path: Option<std::path::PathBuf>,
+    /// A database written by a newer version. Reads are served; every write is
+    /// refused with a message the user can act on (SDD 20 回退).
+    read_only: bool,
 }
 
 /// Held connection. Exists so callers never see the `Option` that `close()`
@@ -196,6 +199,17 @@ impl Store {
         Ok(Conn(guard))
     }
 
+    fn write_guard(&self) -> Result<Conn<'_>> {
+        if self.read_only {
+            return Err(Error::Store(format!(
+                "数据库由更新版本创建（v{} > v{}），本版本只能以只读方式使用",
+                self.version()?,
+                migrations::LATEST
+            )));
+        }
+        self.conn_guard()
+    }
+
     /// Release the SQLite handle. Account deletion has to call this before it
     /// removes the files, because Windows refuses to unlink an open handle
     /// (os error 32). Idempotent: closing twice is a no-op.
@@ -223,18 +237,50 @@ impl Store {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| Error::Io(e.to_string()))?;
         }
-        let backup = path.with_extension("db.bak");
-        if path.exists() {
-            let _ = std::fs::copy(path, &backup);
+        let current = match path.exists() {
+            true => Self::read_version(path)?,
+            false => 0,
+        };
+        if current > migrations::LATEST {
+            return Self::open_read_only(path);
+        }
+        // The backup exists so a failed migration can be undone. Only a run that
+        // is about to change the schema needs one; copying on every open would
+        // leave the post-migration file standing in as the "rollback".
+        if current < migrations::LATEST && path.exists() {
+            let backup = path.with_extension("db.bak");
+            std::fs::copy(path, &backup)
+                .map_err(|e| Error::Io(format!("{}: {e}", backup.display())))?;
         }
         let conn = Connection::open(path).map_err(map_err)?;
         let store = Self {
             conn: Mutex::new(Some(conn)),
             path: Some(path.to_path_buf()),
+            read_only: false,
         };
         store.configure()?;
         store.migrate()?;
         Ok(store)
+    }
+
+    fn read_version(path: &Path) -> Result<i32> {
+        let conn = Connection::open(path).map_err(map_err)?;
+        conn.query_row("PRAGMA user_version", [], |r| r.get(0))
+            .map_err(map_err)
+    }
+
+    fn open_read_only(path: &Path) -> Result<Self> {
+        let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(map_err)?;
+        Ok(Self {
+            conn: Mutex::new(Some(conn)),
+            path: Some(path.to_path_buf()),
+            read_only: true,
+        })
+    }
+
+    pub fn is_read_only(&self) -> bool {
+        self.read_only
     }
 
     pub fn open_memory() -> Result<Self> {
@@ -242,6 +288,7 @@ impl Store {
         let store = Self {
             conn: Mutex::new(Some(conn)),
             path: None,
+            read_only: false,
         };
         store.configure()?;
         store.migrate()?;
@@ -256,7 +303,7 @@ impl Store {
         let conn = self.conn_guard()?;
         conn.pragma_update(None, "foreign_keys", "ON")
             .map_err(map_err)?;
-        if self.path.is_some() {
+        if self.path.is_some() && !self.read_only {
             conn.pragma_update(None, "journal_mode", "WAL")
                 .map_err(map_err)?;
         }
@@ -272,7 +319,7 @@ impl Store {
     }
 
     pub fn migrate(&self) -> Result<()> {
-        let mut conn = self.conn_guard()?;
+        let mut conn = self.write_guard()?;
         let current: i32 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .map_err(map_err)?;
@@ -296,7 +343,7 @@ impl Store {
 
     pub fn insert_session(&self, kind: &str, now: DateTime<Utc>) -> Result<String> {
         let id = uuid::Uuid::new_v4().to_string();
-        let conn = self.conn_guard()?;
+        let conn = self.write_guard()?;
         conn.execute(
             "INSERT INTO sessions (id, created_at, kind) VALUES (?1, ?2, ?3)",
             params![id, now.to_rfc3339(), kind],
@@ -306,14 +353,14 @@ impl Store {
     }
 
     pub fn append_message(&self, m: &MessageRow) -> Result<()> {
-        let conn = self.conn_guard()?;
+        let conn = self.write_guard()?;
         exec_message(&conn, m)
     }
 
     /// Single transaction: messages + usage + task state. Prevents "reply saved
     /// but usage not recorded" (INV-D2).
     pub fn commit_turn(&self, turn: &Turn) -> Result<()> {
-        let mut conn = self.conn_guard()?;
+        let mut conn = self.write_guard()?;
         let tx = conn.transaction().map_err(map_err)?;
         for m in &turn.messages {
             exec_message(&tx, m)?;
@@ -384,7 +431,7 @@ impl Store {
     }
 
     pub fn upsert_task(&self, t: &TaskRow) -> Result<()> {
-        let conn = self.conn_guard()?;
+        let conn = self.write_guard()?;
         conn.execute(
             "INSERT INTO tasks (id, name, goal, state, checkpoint_json, created_at, updated_at,
                                 heartbeat_at, epoch, units, steps_done, result, error_code, owner, retries, prompt_version, tool_schema_version, waiting_since)
@@ -444,7 +491,7 @@ impl Store {
     }
 
     pub fn record_step(&self, s: &StepRecord) -> Result<()> {
-        let conn = self.conn_guard()?;
+        let conn = self.write_guard()?;
         conn.execute(
             "INSERT INTO task_steps (task_id, step, kind, tool, request_json, result_json, ok, code, created_at)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
@@ -482,7 +529,7 @@ impl Store {
     }
 
     pub fn audit(&self, a: &AuditRow) -> Result<()> {
-        let conn = self.conn_guard()?;
+        let conn = self.write_guard()?;
         conn.execute(
             "INSERT INTO audit_log (task_id, tool, risk, args_digest, outcome, created_at) VALUES (?1,?2,?3,?4,?5,?6)",
             params![a.task_id, a.tool, a.risk, a.args_digest, a.outcome, a.created_at.to_rfc3339()],
@@ -517,7 +564,7 @@ impl Store {
     }
 
     pub fn bump_metric(&self, day: &str, name: &str, delta: f64) -> Result<()> {
-        let conn = self.conn_guard()?;
+        let conn = self.write_guard()?;
         conn.execute(
             "INSERT INTO metrics_daily (day, name, value) VALUES (?1,?2,?3)
              ON CONFLICT(day, name) DO UPDATE SET value = value + excluded.value",
@@ -541,7 +588,7 @@ impl Store {
     }
 
     pub fn upsert_dict(&self, heard: &str, corrected: &str, now: DateTime<Utc>) -> Result<()> {
-        let conn = self.conn_guard()?;
+        let conn = self.write_guard()?;
         conn.execute(
             "INSERT INTO dict_entries (heard, corrected, learned_at) VALUES (?1,?2,?3)
              ON CONFLICT(heard) DO UPDATE SET corrected=excluded.corrected, learned_at=excluded.learned_at",
@@ -567,7 +614,7 @@ impl Store {
     }
 
     pub fn upsert_routine(&self, r: &RoutineRow) -> Result<()> {
-        let conn = self.conn_guard()?;
+        let conn = self.write_guard()?;
         conn.execute(
             "INSERT INTO routines (id, name, schedule, enabled, next_run_at, run_count, failures, last_result, task_template)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)
@@ -624,7 +671,7 @@ impl Store {
             "routines",
             "dict_entries",
         ];
-        let mut conn = self.conn_guard()?;
+        let mut conn = self.write_guard()?;
         let tx = conn.transaction().map_err(map_err)?;
         for t in tables {
             match tx.execute(&format!("DELETE FROM {t}"), []) {
@@ -639,7 +686,7 @@ impl Store {
     /// Record when a task entered `waiting_approval`/`waiting_user` so the
     /// watchdog can expire it instead of parking forever.
     pub fn mark_waiting(&self, id: &str, epoch: i64, since: DateTime<Utc>) -> Result<()> {
-        let conn = self.conn_guard()?;
+        let conn = self.write_guard()?;
         let changed = conn
             .execute(
                 "UPDATE tasks SET waiting_since=?3, updated_at=?3 WHERE id=?1 AND epoch=?2",
@@ -654,7 +701,7 @@ impl Store {
 
     /// Clear the waiting marker whenever the task leaves a waiting state.
     pub fn clear_waiting(&self, id: &str) -> Result<()> {
-        let conn = self.conn_guard()?;
+        let conn = self.write_guard()?;
         conn.execute(
             "UPDATE tasks SET waiting_since=NULL WHERE id=?1",
             params![id],
@@ -688,7 +735,7 @@ impl Store {
     /// Idempotent per (task, step): asking twice about the same call keeps the
     /// original row, so the ledger does not grow with every render.
     pub fn insert_approval(&self, a: &ApprovalRow) -> Result<()> {
-        let conn = self.conn_guard()?;
+        let conn = self.write_guard()?;
         conn.execute(
             "INSERT INTO approvals
              (id, task_id, step, tool, risk, args_digest, prompt_json, decision, created_at)
@@ -719,7 +766,7 @@ impl Store {
         allowed: bool,
         now: DateTime<Utc>,
     ) -> Result<bool> {
-        let conn = self.conn_guard()?;
+        let conn = self.write_guard()?;
         let decision = if allowed { "allowed" } else { "denied" };
         let changed = conn
             .execute(
@@ -734,7 +781,7 @@ impl Store {
     /// An approval is good for one call. Consuming it twice is a no-op, so a
     /// replayed step cannot reuse a spent permission.
     pub fn consume_approval(&self, task_id: &str, step: i64, now: DateTime<Utc>) -> Result<bool> {
-        let conn = self.conn_guard()?;
+        let conn = self.write_guard()?;
         let changed = conn
             .execute(
                 "UPDATE approvals SET consumed_at=?1
@@ -779,7 +826,7 @@ impl Store {
     }
 
     pub fn record_artifact(&self, a: &ArtifactRow) -> Result<()> {
-        let conn = self.conn_guard()?;
+        let conn = self.write_guard()?;
         conn.execute(
             "INSERT INTO artifacts (id, task_id, path, kind, bytes, sha256, created_at)
              VALUES (?1,?2,?3,?4,?5,?6,?7)",
@@ -826,7 +873,7 @@ impl Store {
     }
 
     pub fn set_pause_reason(&self, task_id: &str, reason: Option<&str>) -> Result<()> {
-        let conn = self.conn_guard()?;
+        let conn = self.write_guard()?;
         conn.execute(
             "UPDATE tasks SET pause_reason=?1 WHERE id=?2",
             params![reason, task_id],
@@ -880,7 +927,7 @@ impl Store {
     }
 
     pub fn checkpoint_wal(&self) -> Result<()> {
-        let conn = self.conn_guard()?;
+        let conn = self.write_guard()?;
         conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
             .map_err(map_err)
     }
@@ -935,7 +982,7 @@ pub fn args_digest(args: &serde_json::Value) -> String {
 
 impl Store {
     pub fn insert_usage(&self, u: &UsageRow) -> Result<()> {
-        let conn = self.conn_guard()?;
+        let conn = self.write_guard()?;
         conn.execute(
             "INSERT INTO usage_events (kind, units, task_id, session_id, waived, created_at, meta_json)
              VALUES (?1,?2,?3,?4,?5,?6,?7)",

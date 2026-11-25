@@ -76,10 +76,10 @@
 | 5 | INV-1…8 有用例且通过 | ⚠️ | INV-1/3/4/7 有绑定用例；INV-2/5/6/8 仍只有函数级用例，缺端到端证据（见 §7） |
 | 6 | G2 结论绑定同一 commit | ⚠️ | 本文件绑定 `81691a6`，但 WP6 未通过 |
 | 7 | 无 P0/P1 未测项 | ⚠️ | 见 §5 |
-| 8 | 迁移与恢复演练 | ❌ | 未做 |
+| 8 | 迁移与恢复演练 | ✅ | `migration_drill` 三条：v1 带数据迁到 v3 后行数、FTS 回填、`.db.bak` 回滚到 v1 全部核对通过；更高版本库只读打开 |
 | 9 | `05-deployment.md` 与产物一致 | ⚠️ | 运行方式已写，安装器待补 |
 
-**结论：G3 阻塞在第 4 与第 8 条。**
+**结论：G3 只剩第 4 条（三平台安装 + 首启冒烟）阻塞，需要 Windows/Linux 机器与安装器产物。**
 
 ## 3.1 施工顺序（业主已定案，见 ADR-0015）
 
@@ -106,7 +106,7 @@
 2. Windows 与 Linux 的构建与安装
 3. 长任务 >20 分钟的真实计时
 4. 睡眠/唤醒补跑
-5. 迁移与恢复演练（备份 → 恢复 → 核对）
+5. ~~迁移与恢复演练~~ 已由 `migration_drill` 覆盖，见 §7
 6. 覆盖率数字
 
 ## 6. 证据索引
@@ -121,7 +121,7 @@
 
 ## 7. 2026-11-24 全栈审核修复批次
 
-依据 `docs/reviews/fullstack-audit-2026-11-24.md`。证据：`cargo test --workspace` 185 通过、`clippy -D warnings` 干净、`scripts/check-invariants.sh` 与四个文档脚本全绿。
+依据 `docs/reviews/fullstack-audit-2026-11-24.md`。证据：`cargo test --workspace` 188 通过、`clippy -D warnings` 干净、`scripts/check-invariants.sh` 与四个文档脚本全绿。
 
 | 修复 | 位置 | 绑定测试（文件 › 用例） |
 |---|---|---|
@@ -140,6 +140,7 @@
 | 删除报告不再吞掉失败的逐表结果 | `deletion.rs` | `deletion` › `a_table_that_refuses_to_empty_fails_step_one` |
 | 迁移 v3：`approvals`/`artifacts` 表、`pause_reason`、FTS5 与三个触发器 | `store/migrations.rs` M003、`store/mod.rs` | `store mod` › `migration_reaches_v3_and_adds_the_pause_reason`、`migrating_twice_is_a_no_op`、`full_text_search_finds_a_message_and_the_delete_trigger_clears_it`、`pause_reason_round_trips_and_clears` |
 | 批准落账，单次可用 | `agent/runner.rs` `note_approval` | `store mod` › `an_approval_is_decided_once_and_used_once`、`a_denied_approval_cannot_be_consumed`、`asking_twice_about_the_same_step_keeps_one_row`；`e2e_agent` › `approval_lets_the_action_run_once` |
+| 迁移与恢复演练（G3 第 8 条） | `store::open` 只在真要迁移时备份；`open_read_only` | `migration_drill` › `the_drill_migrates_v1_and_the_backup_restores_it`、`the_backup_stays_the_pre_migration_copy`、`a_newer_database_opens_read_only_instead_of_bricking` |
 | INV-2：工具参数里的 key 不落 SQLite | `agent/runner.rs` 审计摘要 + 步骤摘要 | `e2e_agent` › `a_key_in_tool_arguments_never_reaches_the_database` |
 | INV-8：恢复不重放被中断的调用 | `recover_interrupted` | `e2e_agent` › `startup_recovery_pauses_stale_running_tasks` |
 | 产物归属可查（kind / bytes / sha256） | `agent/runner.rs` `finish`、`security::sha256_file` | `e2e_agent` › `writes_a_file_then_finishes_with_evidence`；`store mod` › `artifacts_survive_a_reopen_and_stay_scoped_to_their_task` |
