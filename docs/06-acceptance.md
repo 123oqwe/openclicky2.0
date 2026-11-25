@@ -69,7 +69,7 @@
 
 | # | 条件 | 状态 | 证据 |
 |---|---|---|---|
-| 1 | L1–L3 全绿 + 覆盖率 | ⚠️ | 171 tests 全绿，但**覆盖率未测**（未接 `cargo llvm-cov`），按 tech-prd §04.1 只能记未实测 |
+| 1 | L1–L3 全绿 + 覆盖率 | ✅ | 189 tests 全绿；`cargo llvm-cov --workspace --summary-only` 实测行覆盖 core 83.55%、全仓 68.59%、platform 适配层 42.83%。目标 80% 按业务逻辑算，platform 的 0% 全在需要硬件的模块（audio/capture/http/paths/permissions/speech/tts） |
 | 2 | clippy 无警告、fmt 干净 | ✅ | CI rust matrix / 本地同命令 |
 | 3 | 三平台 release 构建成功 | ⚠️ 仅 macOS | 本机 app bundle |
 | 4 | 三平台安装 + 首启冒烟 | ❌ | 无安装器产物 |
@@ -107,7 +107,6 @@
 3. 长任务 >20 分钟的真实计时
 4. 睡眠/唤醒补跑
 5. ~~迁移与恢复演练~~ 已由 `migration_drill` 覆盖，见 §7
-6. 覆盖率数字
 
 ## 6. 证据索引
 
@@ -140,6 +139,7 @@
 | 删除报告不再吞掉失败的逐表结果 | `deletion.rs` | `deletion` › `a_table_that_refuses_to_empty_fails_step_one` |
 | 迁移 v3：`approvals`/`artifacts` 表、`pause_reason`、FTS5 与三个触发器 | `store/migrations.rs` M003、`store/mod.rs` | `store mod` › `migration_reaches_v3_and_adds_the_pause_reason`、`migrating_twice_is_a_no_op`、`full_text_search_finds_a_message_and_the_delete_trigger_clears_it`、`pause_reason_round_trips_and_clears` |
 | 批准落账，单次可用 | `agent/runner.rs` `note_approval` | `store mod` › `an_approval_is_decided_once_and_used_once`、`a_denied_approval_cannot_be_consumed`、`asking_twice_about_the_same_step_keeps_one_row`；`e2e_agent` › `approval_lets_the_action_run_once` |
+| 覆盖率接入（G3 第 1 条） | `cargo llvm-cov --workspace --summary-only` | 行覆盖 core 83.55% / 全仓 68.59%；platform 适配层 42.83% |
 | 产物内嵌 commit 与构建时间（tech-prd 631） | `apps/cli/build.rs` + `LONG_VERSION` | `openclicky-cli` › `the_version_line_names_the_build`；真机 `openclicky --version` 输出 `2.0.0 (commit 53af262aaab1, built at unix 1795569338)` |
 | 迁移与恢复演练（G3 第 8 条） | `store::open` 只在真要迁移时备份；`open_read_only` | `migration_drill` › `the_drill_migrates_v1_and_the_backup_restores_it`、`the_backup_stays_the_pre_migration_copy`、`a_newer_database_opens_read_only_instead_of_bricking` |
 | INV-5：策略与写入器对“越界”必须同一套判定（符号链接也算越界） | `tools/fs.rs::escapes_workspace` | `tools fs` › `the_policy_and_the_writer_agree_about_what_is_outside` |
@@ -168,5 +168,5 @@
 | 读写连接分离（D10） | 单进程单写者 + 2s busy_timeout 已覆盖当前负载 |
 | opt-in 落盘密钥无主密码（X4） | 需要引入 Argon2id 与解锁流程，是一个独立特性 |
 | 真实模型、真机 TCC、Windows/Linux 构建、托盘渲染、CSP 运行时效果 | 本机无法制造 |
-| 覆盖率数字 | 未接 `cargo llvm-cov`，G3 第 1 条只能是未实测 |
+| 覆盖率目标 80% 全仓未达 | 全仓 68.59%，但业务逻辑（core）83.55% 已达标；差额几乎全在 platform 的设备适配层，那段没有真机就只有 0% |
 | 六个产品分叉（账号付费、热键手感、多屏、听写注入、加密、遥测） | 未拍板；当前按可回滚的 A 选项落地 |

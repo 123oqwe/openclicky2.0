@@ -654,7 +654,7 @@ release → final transcribe → tail-correct(20s) → cleanup → dict-learning
 
 | 层 | 范围 | 证据 | 门槛 |
 |---|---|---|---|
-| L1 单元 | 每个 core 模块 | `cargo test` | 全绿；覆盖率 ≥ 80% 是目标值，尚未接入测量（见 `04-test-design.md` §19） |
+| L1 单元 | 每个 core 模块 | `cargo test` | 全绿；覆盖率目标 80%，已接入测量：`cargo llvm-cov --workspace --summary-only` 实测 core 83.55%、全仓 68.59%（platform 适配层 42.83%，其中 audio/capture/http/paths/permissions/speech/tts 七个模块为 0%，需要真机硬件） |
 | L2 契约 | provider/SSE/注解/策略 | 表驱动 + 样本 | 全绿 |
 | L3 集成 | 假实现驱动全链路 | `tests/e2e_*.rs` | 全绿 |
 | L4 手工冒烟 | 真实进程 + 真机 | `06-acceptance.md` | 三平台各一次 |
@@ -663,7 +663,7 @@ release → final transcribe → tail-correct(20s) → cleanup → dict-learning
 
 **发布准入（G3）清单**（全满足才可发布）：
 
-1. L1–L3 全绿；覆盖率不得作为门槛（目标 80%，未接入测量前记未测）。
+1. L1–L3 全绿；覆盖率不得作为门槛（目标 80%，`cargo llvm-cov` 已可测，数字记在 `06-acceptance.md` §7）。
 2. Clippy 无警告；fmt 干净。
 3. 三平台 release 构建成功且有产物。
 4. 三平台安装 + 首启 + 按键冒烟通过（含未签名绕过步骤）。
@@ -1315,7 +1315,7 @@ Wayland 下启动时必须检测并显示"需要 X11 会话（或改用剪贴板
 | 责任归属 | 各模块 + 验收负责人 |
 | 验证与证据 | `06-acceptance.md` §3 的实测栏；`metrics_daily` 行 |
 | 关联 | 本文 §04.1 |
-| 状态与风险 | 已批准/部分实现（SLI 定义齐；实测值缺，覆盖率未接） |
+| 状态与风险 | 已批准/部分实现（SLI 定义齐；实测值仍缺，覆盖率已接入，见 §04.1） |
 
 ---
 
