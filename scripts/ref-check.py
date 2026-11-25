@@ -39,8 +39,13 @@ _UNUSED = {
     "product-prd": "00-baseline.md",
 }
 
+# Matching on `str(p)` hid a Windows-only difference: str() uses backslashes
+# there, so "reviews/standards" never matched and the standards dumps were
+# scanned, which failed the check on a tree that passes on macOS. Compare parts.
+SKIP = {"reviews", "standards"}
+
 def docs_files():
-    return sorted([p for p in DOCS.rglob("*.md") if "reviews/standards" not in str(p)])
+    return sorted(p for p in DOCS.rglob("*.md") if not SKIP <= set(p.parts))
 
 def norm(sid):
     """'04.2' and '4.2' are the same section; 'A-04' keeps its letter."""
@@ -68,7 +73,7 @@ def main():
     index = build_index()
     problems = []
     for p in docs_files():
-        rel = p.relative_to(ROOT)
+        rel = p.relative_to(ROOT).as_posix()
         text = p.read_text(encoding="utf-8")
         # 1) ADR ids
         for m in re.finditer(r'ADR-(\d{4})', text):
