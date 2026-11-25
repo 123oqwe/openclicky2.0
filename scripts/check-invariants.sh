@@ -84,7 +84,10 @@ if [ "$has_code" -eq 1 ]; then
   fi
 
   note "== linux deps come from one script =="
-  inline_deps=$(grep -ln 'apt-get install' .github/workflows/*.yml 2>/dev/null || true)
+  # Installing the built artifact itself is fine; declaring a second package
+  # list is what drifted. A path argument marks the former.
+  inline_deps=$(grep -n 'apt-get install' .github/workflows/*.yml 2>/dev/null \
+                | grep -vE '\./|/dist/' || true)
   [ -z "$inline_deps" ] || bad "a workflow installs packages inline; call scripts/linux-deps.sh ($inline_deps)"
 
   note "== permissions: probe before tool execution =="

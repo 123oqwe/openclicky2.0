@@ -376,7 +376,9 @@ fn doctor(app: &App, online: bool) -> anyhow::Result<()> {
 }
 
 fn task(app: &App, goal: &str, dry_run: bool) -> anyhow::Result<()> {
-    let (_deps, _engine, memory) = app.deps()?;
+    // The task path never transcribes, so building the speech stack here would
+    // demand an STT key a local-only or dry-run user does not have.
+    let memory = Arc::new(Memory::load(&app.paths.memory_dir())?);
     let chat = app.provider()?;
     let clock: Arc<dyn Clock> = Arc::new(openclicky_core::clock::SystemClock);
     let usage = Arc::new(UsageMeter::new(
@@ -450,7 +452,10 @@ fn selftest(app: &App, out: Option<PathBuf>) -> anyhow::Result<()> {
         );
     }
     if let Some(path) = out {
-        std::fs::write(&path, &shots[0].png)?;
+        let shot = shots.first().ok_or_else(|| {
+            anyhow!("captured no display, so there is nothing to write (headless, or screen recording was refused)")
+        })?;
+        std::fs::write(&path, &shot.png)?;
         println!("wrote {}", path.display());
     }
     let _lock = Singleton::acquire(&app.paths.lock_file())?;

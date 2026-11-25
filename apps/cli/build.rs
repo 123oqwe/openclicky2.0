@@ -4,7 +4,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 fn main() {
     // A smoke report has to name the build it ran against, so the binary carries
     // its commit. A source tarball has no .git; "unknown" is honest there.
+    // HEAD is a symbolic ref that keeps the same content across commits on one
+    // branch, so watching it alone leaves a stale stamp. The reflog changes on
+    // every commit and checkout.
     println!("cargo:rerun-if-changed=../../.git/HEAD");
+    println!("cargo:rerun-if-changed=../../.git/logs/HEAD");
     println!("cargo:rerun-if-env-changed=OPENCLICKY_COMMIT");
 
     let commit = std::env::var("OPENCLICKY_COMMIT")

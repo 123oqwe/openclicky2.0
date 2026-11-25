@@ -153,8 +153,14 @@ jobs:
           $setup = Get-ChildItem dist\*setup.exe | Select-Object -First 1
           Write-Host "installer=$($setup.FullName)"
           Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait
-          $exe = Get-ChildItem "$env:LOCALAPPDATA","$env:ProgramFiles" -Recurse -Filter 'OpenClicky.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $exe) { Write-Error 'the installer produced no OpenClicky.exe'; exit 1 }
+          $roots = @("$env:LOCALAPPDATA", "$env:ProgramFiles")
+          $exe = Get-ChildItem $roots -Recurse -Filter 'openclicky-desktop.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $exe) {
+            $exe = Get-ChildItem $roots -Recurse -Filter '*.exe' -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -match 'OpenClicky' -and $_.Name -notmatch 'uninstall|setup' } |
+              Select-Object -First 1
+          }
+          if (-not $exe) { Write-Error 'the installer produced no runnable exe'; exit 1 }
           Write-Host "binary=$($exe.FullName)"
           $p = Start-Process -FilePath $exe.FullName -PassThru
           Start-Sleep -Seconds 10
@@ -165,8 +171,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y xvfb
+          bash scripts/linux-deps.sh smoke
           sudo apt-get install -y ./dist/*.deb
           BIN=$(command -v openclicky-desktop || true)
           if [ -z "$BIN" ]; then
@@ -174,15 +179,16 @@ jobs:
             exit 1
           fi
           echo "binary=$BIN"
-          xvfb-run -a --server-args="-screen 0 1280x800x24" bash -c "
+          export WEBKIT_DISABLE_DMABUF_RENDERER=1 LIBGL_ALWAYS_SOFTWARE=1
+          dbus-run-session -- xvfb-run -a --server-args="-screen 0 1280x800x24" bash -c "
             '$BIN' & PID=\$!
-            sleep 10
-            if ! kill -0 \$PID 2>/dev/null; then echo '::error::the app exited within 10s of launch'; exit 1; fi
+            sleep 12
+            if ! kill -0 \$PID 2>/dev/null; then echo '::error::the app exited within 12s of launch'; exit 1; fi
             kill \$PID || true
           "
 
   publish:
-    needs: [build, desktop]
+    needs: [build, desktop, smoke]
     # A manual dispatch has no tag to publish under, so it builds and stops. Only
     # a v* tag creates a Release; otherwise every dispatch would end red for a
     # reason that is not a defect.
