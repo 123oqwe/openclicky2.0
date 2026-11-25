@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0
+## 2.0.0
 
 第一个公开版本。源码可构建，产物可下载，未签名。
 
@@ -23,7 +23,7 @@
 | Windows | `OpenClicky_*_x64-setup.exe`（NSIS） | `openclicky.exe` |
 | Linux | `OpenClicky_*_amd64.AppImage`、`OpenClicky_*.deb` | `openclicky` |
 
-每个文件附 `<文件名>.sha256`，另有一份 `SHA256SUMS` 覆盖全部分发文件。
+另附一份 `SHA256SUMS`，覆盖全部分发文件，用 `sha256sum -c SHA256SUMS` 校验。
 
 ### 升级与兼容
 
