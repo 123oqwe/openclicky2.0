@@ -23,7 +23,7 @@
 | Windows | `OpenClicky_*_x64-setup.exe`（NSIS） | `openclicky.exe` |
 | Linux | `OpenClicky_*_amd64.AppImage`、`OpenClicky_*.deb` | `openclicky` |
 
-另附一份 `SHA256SUMS`，覆盖全部分发文件，用 `sha256sum -c SHA256SUMS` 校验。
+另附一份 `SHA256SUMS`，覆盖全部分发文件。在下载目录里用 `scripts/verify-checksums.sh` 校验，三平台通用。
 
 ### 升级与兼容
 
