@@ -41,6 +41,29 @@ try {
 
 Write-Host "  at $target"
 
+# The desktop shell, from the NSIS installer the release already publishes.
+$setup = 'OpenClicky_2.0.0_x64-setup.exe'
+$setupUrl = if ($Version) {
+    "https://github.com/$Repo/releases/download/$Version/$setup"
+} else {
+    "https://github.com/$Repo/releases/latest/download/$setup"
+}
+
+$tmpSetup = Join-Path $env:TEMP $setup
+try {
+    Write-Host "downloading $setup"
+    Invoke-WebRequest -Uri $setupUrl -OutFile $tmpSetup -UseBasicParsing
+    # A file downloaded from the internet carries a mark-of-the-web that can stop
+    # the installer from running without a manual "unblock".
+    Unblock-File -Path $tmpSetup
+    Write-Host "installing the desktop shell (silent)"
+    Start-Process -FilePath $tmpSetup -ArgumentList '/S' -Wait
+} catch {
+    Write-Host "  could not install the desktop shell; the CLI still works: $_"
+} finally {
+    Remove-Item -Force -ErrorAction SilentlyContinue $tmpSetup
+}
+
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 if ($userPath -notlike "*$Prefix*") {
     Write-Host ""

@@ -1,23 +1,40 @@
 #!/usr/bin/env bash
-# Install the OpenClicky CLI from the latest release.
+# Install or remove OpenClicky: the CLI and, when the release has one for this
+# machine, the desktop shell.
 #
 #   curl -fsSL https://raw.githubusercontent.com/123oqwe/openclicky2.0/main/scripts/install.sh | sh
+#   scripts/install.sh --uninstall
 #
 # The release assets carry a platform suffix (openclicky-macos, openclicky-linux,
 # openclicky-windows.exe) because three files called "openclicky" would collide
-# in a flat download. This installs the right one under the plain name
-# "openclicky", which is what every example in the README and CHANGELOG assumes.
+# in a flat download. This installs the right one under the plain name, which is
+# what every example in the README and CHANGELOG assumes.
 #
-# Override where it lands with PREFIX (default ~/.local/bin) and pin a version
+# Override the destination with PREFIX (default ~/.local/bin) and pin a version
 # with VERSION (default: the latest release).
 set -euo pipefail
 
 REPO="123oqwe/openclicky2.0"
 PREFIX="${PREFIX:-$HOME/.local/bin}"
 VERSION="${VERSION:-}"
+RELEASES_API="${RELEASES_API:-https://api.github.com/repos/${REPO}/releases/latest}"
 
 say() { printf '%s\n' "$*"; }
 die() { printf 'install: %s\n' "$*" >&2; exit 1; }
+
+action=install
+for arg in "$@"; do
+    case "$arg" in
+        --uninstall) action=uninstall ;;
+        -h | --help)
+            say "usage: install.sh [--uninstall]"
+            say "  PREFIX   where the CLI goes (default ~/.local/bin)"
+            say "  VERSION  pin a release tag (default: latest)"
+            exit 0
+            ;;
+        *) die "unknown option ${arg}" ;;
+    esac
+done
 
 case "$(uname -s)" in
     Darwin) os=macos ;;
@@ -25,40 +42,142 @@ case "$(uname -s)" in
     *) die "unsupported system $(uname -s). Windows: use install.ps1." ;;
 esac
 
-case "$(uname -m)" in
-    x86_64 | amd64) : ;;   # the released CLI is x86_64 on both
-    arm64 | aarch64)
-        # The macOS desktop app ships aarch64; the CLI binary is universal in the
-        # same archive, so the macos asset is the right one on either arch.
-        ;;
-    *) die "unsupported architecture $(uname -m)" ;;
-esac
+apps_dir="${APPS_DIR:-$HOME/Applications}"
+mac_app="${apps_dir}/OpenClicky.app"
+desktop_entry="${XDG_DATA_HOME:-$HOME/.local/share}/applications/openclicky.desktop"
 
-asset="openclicky-${os}"
+release_base() {
+    if [ -n "$VERSION" ]; then
+        printf 'https://github.com/%s/releases/download/%s' "$REPO" "$VERSION"
+    else
+        printf 'https://github.com/%s/releases/latest/download' "$REPO"
+    fi
+}
 
-if [ -n "$VERSION" ]; then
-    url="https://github.com/${REPO}/releases/download/${VERSION}/${asset}"
-else
-    url="https://github.com/${REPO}/releases/latest/download/${asset}"
+# Print the name of the single asset matching a pattern, or nothing. The name
+# comes from the release rather than the tag because the disk image and the zip
+# are named after the crate version: a tag v2.0.1 with Cargo at 2.0.0 would make
+# a constructed name 404 while the real asset sits right there.
+asset_name() {
+    local pattern="$1"
+    curl -fsSL "$RELEASES_API" \
+        | sed -n 's/.*"name": *"\([^"]*\)".*/\1/p' \
+        | grep -E "$pattern" | head -1
+}
+
+uninstall() {
+    rm -f "$PREFIX/openclicky"
+    say "removed ${PREFIX}/openclicky"
+    case "$os" in
+        macos)
+            rm -rf "$mac_app"
+            say "removed ${mac_app}"
+            ;;
+        linux)
+            rm -f "$PREFIX/OpenClicky.AppImage" "$PREFIX/openclicky-desktop"
+            rm -f "$desktop_entry"
+            say "removed the AppImage, its symlink and the desktop entry"
+            ;;
+    esac
+    say ""
+    say "your data is still in place. To remove it as well: openclicky delete --yes"
+}
+
+install_cli() {
+    local asset="openclicky-${os}"
+    local url
+    if [ -n "$VERSION" ]; then
+        url="https://github.com/${REPO}/releases/download/${VERSION}/${asset}"
+    else
+        url="https://github.com/${REPO}/releases/latest/download/${asset}"
+    fi
+
+    # global on purpose: the EXIT trap outlives this function, and a local would
+    # be gone by the time it fires.
+    tmp="$(mktemp -d)"
+    trap 'rm -rf "$tmp"' EXIT
+
+    say "downloading ${asset}"
+    command -v curl >/dev/null 2>&1 || die "curl is required"
+    curl -fsSL "$url" -o "$tmp/openclicky" || die "download failed: $url"
+
+    # Artifact uploads do not keep the executable bit, so the download is 644 and
+    # has to be made runnable before anything else.
+    chmod +x "$tmp/openclicky"
+    mkdir -p "$PREFIX"
+    mv "$tmp/openclicky" "$PREFIX/openclicky"
+    chmod +x "$PREFIX/openclicky"
+    say "installed $("$PREFIX/openclicky" --version 2>/dev/null || echo openclicky)"
+    say "  at ${PREFIX}/openclicky"
+}
+
+install_desktop() {
+    local base pattern name
+    base="$(release_base)"
+
+    case "$os" in
+        macos) pattern='^OpenClicky\.app\.zip$' ;;
+        linux) pattern='^OpenClicky_.*_amd64\.AppImage$' ;;
+        *) return 0 ;;
+    esac
+
+    name="$(asset_name "$pattern")"
+    if [ -z "$name" ]; then
+        say "  this release has no desktop build for ${os}; the CLI still works"
+        return 0
+    fi
+
+    local tmp
+    tmp="$(mktemp -d)"
+    say "downloading ${name}"
+    if ! curl -fsSL "${base}/${name}" -o "$tmp/${name}"; then
+        say "  could not download ${name}; the CLI still works"
+        rm -rf "$tmp"
+        return 0
+    fi
+
+    if [ "$os" = "macos" ]; then
+        mkdir -p "$apps_dir"
+        rm -rf "$mac_app"
+        # ditto, not unzip: unzip can drop resource forks and symlink layout, and
+        # a partially restored bundle is worse than no bundle.
+        if ! ditto -x -k "$tmp/${name}" "$apps_dir"; then
+            say "  could not expand ${name}; the CLI still works"
+            rm -rf "$tmp"
+            return 0
+        fi
+        if [ ! -d "$mac_app" ]; then
+            say "  ${name} did not contain OpenClicky.app; the CLI still works"
+            rm -rf "$tmp"
+            return 0
+        fi
+        say "installed the desktop app at ${mac_app}"
+    else
+        cp "$tmp/${name}" "$PREFIX/OpenClicky.AppImage"
+        chmod +x "$PREFIX/OpenClicky.AppImage"
+        ln -sf "$PREFIX/OpenClicky.AppImage" "$PREFIX/openclicky-desktop"
+        mkdir -p "$(dirname "$desktop_entry")"
+        cat >"$desktop_entry" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=OpenClicky
+Comment=An AI buddy that lives on your computer
+Exec=${PREFIX}/OpenClicky.AppImage
+Terminal=false
+Categories=Utility;
+DESKTOP
+        say "installed the desktop app at ${PREFIX}/OpenClicky.AppImage"
+    fi
+    rm -rf "$tmp"
+}
+
+if [ "$action" = uninstall ]; then
+    uninstall
+    exit 0
 fi
 
-tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
-
-say "downloading ${asset}"
-command -v curl >/dev/null 2>&1 || die "curl is required"
-curl -fsSL "$url" -o "$tmp/openclicky" || die "download failed: $url"
-
-# Artifact uploads do not keep the executable bit, so the download is 644 and
-# has to be made runnable before anything else.
-chmod +x "$tmp/openclicky"
-
-mkdir -p "$PREFIX"
-mv "$tmp/openclicky" "$PREFIX/openclicky"
-chmod +x "$PREFIX/openclicky"
-
-say "installed $("$PREFIX/openclicky" --version 2>/dev/null || echo "openclicky")"
-say "  at ${PREFIX}/openclicky"
+install_cli
+install_desktop
 
 case ":$PATH:" in
     *":$PREFIX:"*) ;;
@@ -68,64 +187,6 @@ case ":$PATH:" in
         say "    echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc"
         ;;
 esac
-
-# The desktop shell. openclicky app looks for it at a fixed path per platform, so
-# the installer is what makes "install, then openclicky app" true.
-version_bare=""
-tag=""
-
-resolve_version() {
-    if [ -n "$VERSION" ]; then
-        tag="$VERSION"
-    else
-        tag=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-              | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)
-    fi
-    [ -n "$tag" ] || return 1
-    version_bare="${tag#v}"
-}
-
-install_desktop() {
-    resolve_version || { say "  could not resolve the release version; skipping the desktop app"; return 0; }
-    local base="https://github.com/${REPO}/releases/download/${tag}"
-
-    case "$os" in
-        macos)
-            # The release carries an arm64 disk image only, so an Intel Mac gets
-            # the CLI and an honest note rather than a silent mismatch.
-            local name="OpenClicky_${version_bare}_aarch64.dmg" tmpd
-            tmpd="$(mktemp -d)"
-            if ! curl -fsSL "${base}/${name}" -o "$tmpd/OpenClicky.dmg"; then
-                say "  no desktop build for this machine (${name} unavailable); the CLI still works"
-                rm -rf "$tmpd"
-                return 0
-            fi
-            if ! hdiutil attach "$tmpd/OpenClicky.dmg" -nobrowse -quiet -mountpoint "$tmpd/mnt"; then
-                say "  could not mount the disk image; the CLI still works"
-                rm -rf "$tmpd"
-                return 0
-            fi
-            mkdir -p "$HOME/Applications"
-            rm -rf "$HOME/Applications/OpenClicky.app"
-            cp -R "$tmpd/mnt/OpenClicky.app" "$HOME/Applications/"
-            hdiutil detach "$tmpd/mnt" -quiet || true
-            rm -rf "$tmpd"
-            say "installed the desktop app at ~/Applications/OpenClicky.app"
-            ;;
-        linux)
-            local name="OpenClicky_${version_bare}_amd64.AppImage"
-            if curl -fsSL "${base}/${name}" -o "$PREFIX/OpenClicky.AppImage"; then
-                chmod +x "$PREFIX/OpenClicky.AppImage"
-                ln -sf "$PREFIX/OpenClicky.AppImage" "$PREFIX/openclicky-desktop"
-                say "installed the desktop app at $PREFIX/OpenClicky.AppImage"
-            else
-                say "  could not download the desktop app; the CLI still works"
-            fi
-            ;;
-    esac
-}
-
-install_desktop
 
 say ""
 say "next:"
