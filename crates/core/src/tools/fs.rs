@@ -51,7 +51,12 @@ pub fn resolve_in_workspace(root: &Path, rel: &str) -> Result<PathBuf> {
 }
 
 /// Does this path leave the workspace? Checked before asking for approval.
-pub fn escapes_workspace(_root: &Path, rel: &str) -> bool {
+///
+/// This has to answer exactly what `resolve_in_workspace` enforces, or the
+/// policy allows a path the writer then refuses. A symlink inside the workspace
+/// pointing outside is the case that used to split them: the string has no `..`
+/// and is not absolute, but the writer follows the link.
+pub fn escapes_workspace(root: &Path, rel: &str) -> bool {
     let rel = rel.trim();
     if rel.is_empty() {
         return false;
@@ -60,9 +65,33 @@ pub fn escapes_workspace(_root: &Path, rel: &str) -> bool {
     if candidate.is_absolute() {
         return true;
     }
-    candidate
+    if candidate
         .components()
         .any(|c| matches!(c, Component::ParentDir))
+    {
+        return true;
+    }
+    canonical_escape(root, &root.join(candidate))
+}
+
+fn canonical_escape(root: &Path, joined: &Path) -> bool {
+    let root_canonical = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    let existing = match joined.exists() {
+        true => Some(joined.to_path_buf()),
+        false => {
+            let mut ancestor = joined.to_path_buf();
+            while !ancestor.exists() {
+                if !ancestor.pop() {
+                    return false;
+                }
+            }
+            Some(ancestor)
+        }
+    };
+    match existing.and_then(|p| std::fs::canonicalize(p).ok()) {
+        Some(canonical) => !canonical.starts_with(&root_canonical),
+        None => true,
+    }
 }
 
 pub fn read_text(root: &Path, rel: &str, max: usize) -> Result<String> {
@@ -188,6 +217,28 @@ mod tests {
         let link = dir.path().join("link");
         std::os::unix::fs::symlink(outside.path(), &link).unwrap();
         assert!(resolve_in_workspace(dir.path(), "link/secret.txt").is_err());
+    }
+
+    #[test]
+    fn the_policy_and_the_writer_agree_about_what_is_outside() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("sub")).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("link")).unwrap();
+
+        let mut cases = vec!["a.txt", "sub/b.txt", "sub/new/c.txt", "../x", "/abs/x", ""];
+        #[cfg(unix)]
+        cases.push("link/secret.txt");
+
+        for rel in cases {
+            let resolved = resolve_in_workspace(dir.path(), rel);
+            assert_eq!(
+                escapes_workspace(dir.path(), rel),
+                resolved.is_err(),
+                "the policy and the writer disagree about {rel:?}"
+            );
+        }
     }
 
     #[test]

@@ -73,7 +73,7 @@
 | 2 | clippy 无警告、fmt 干净 | ✅ | CI rust matrix / 本地同命令 |
 | 3 | 三平台 release 构建成功 | ⚠️ 仅 macOS | 本机 app bundle |
 | 4 | 三平台安装 + 首启冒烟 | ❌ | 无安装器产物 |
-| 5 | INV-1…8 有用例且通过 | ⚠️ | INV-1/3/4/7 有绑定用例；INV-2/5/6/8 仍只有函数级用例，缺端到端证据（见 §7） |
+| 5 | INV-1…8 有用例且通过 | ✅ | INV-1/3/4/7 绑定用例；INV-2 扫库验证 key 未落盘；INV-5 批准后写入 + 审计行断言、策略与写入器对“是否越界”的判定有对拍用例；INV-6 跨两步断言任务费只收一次；INV-8 恢复不重放 |
 | 6 | G2 结论绑定同一 commit | ⚠️ | 本文件绑定 `81691a6`，但 WP6 未通过 |
 | 7 | 无 P0/P1 未测项 | ⚠️ | 见 §5 |
 | 8 | 迁移与恢复演练 | ✅ | `migration_drill` 三条：v1 带数据迁到 v3 后行数、FTS 回填、`.db.bak` 回滚到 v1 全部核对通过；更高版本库只读打开 |
@@ -121,7 +121,7 @@
 
 ## 7. 2026-11-24 全栈审核修复批次
 
-依据 `docs/reviews/fullstack-audit-2026-11-24.md`。证据：`cargo test --workspace` 188 通过、`clippy -D warnings` 干净、`scripts/check-invariants.sh` 与四个文档脚本全绿。
+依据 `docs/reviews/fullstack-audit-2026-11-24.md`。证据：`cargo test --workspace` 189 通过、`clippy -D warnings` 干净、`scripts/check-invariants.sh` 与四个文档脚本全绿。
 
 | 修复 | 位置 | 绑定测试（文件 › 用例） |
 |---|---|---|
@@ -141,6 +141,9 @@
 | 迁移 v3：`approvals`/`artifacts` 表、`pause_reason`、FTS5 与三个触发器 | `store/migrations.rs` M003、`store/mod.rs` | `store mod` › `migration_reaches_v3_and_adds_the_pause_reason`、`migrating_twice_is_a_no_op`、`full_text_search_finds_a_message_and_the_delete_trigger_clears_it`、`pause_reason_round_trips_and_clears` |
 | 批准落账，单次可用 | `agent/runner.rs` `note_approval` | `store mod` › `an_approval_is_decided_once_and_used_once`、`a_denied_approval_cannot_be_consumed`、`asking_twice_about_the_same_step_keeps_one_row`；`e2e_agent` › `approval_lets_the_action_run_once` |
 | 迁移与恢复演练（G3 第 8 条） | `store::open` 只在真要迁移时备份；`open_read_only` | `migration_drill` › `the_drill_migrates_v1_and_the_backup_restores_it`、`the_backup_stays_the_pre_migration_copy`、`a_newer_database_opens_read_only_instead_of_bricking` |
+| INV-5：策略与写入器对“越界”必须同一套判定（符号链接也算越界） | `tools/fs.rs::escapes_workspace` | `tools fs` › `the_policy_and_the_writer_agree_about_what_is_outside` |
+| INV-5：越界写入必须留下审计行 | `store::audit_rows` | `e2e_agent` › `approving_an_outside_write_lets_it_through_once` |
+| INV-6：任务费只收一次，步骤各收一次 | `TaskRunner::step` + `UsageMeter` | `e2e_agent` › `task_is_charged_once_at_start_and_steps_separately` |
 | INV-2：工具参数里的 key 不落 SQLite | `agent/runner.rs` 审计摘要 + 步骤摘要 | `e2e_agent` › `a_key_in_tool_arguments_never_reaches_the_database` |
 | INV-8：恢复不重放被中断的调用 | `recover_interrupted` | `e2e_agent` › `startup_recovery_pauses_stale_running_tasks` |
 | 产物归属可查（kind / bytes / sha256） | `agent/runner.rs` `finish`、`security::sha256_file` | `e2e_agent` › `writes_a_file_then_finishes_with_evidence`；`store mod` › `artifacts_survive_a_reopen_and_stay_scoped_to_their_task` |
@@ -156,7 +159,6 @@
 
 | 项 | 卡在哪 |
 |---|---|
-| INV-5、INV-6 只有函数级测试 | 端到端用例要一次真实任务 + 真机权限；`e2e_agent` 只能脚本化模型 |
 | `ask_typed` 不支持“先画再问” | 截图与指画已经在打字通道里（`voice.rs` 走同一个 `CaptureReason::TypedQuestion` 闸门，`annotations::parse_reply` 出坐标）；缺的只是用户先圈一块再打字，那需要按住热键，属于热键通道 |
 | 应用自有命令未走 Tauri ACL | `withGlobalTauri: true` 是无打包步骤（ADR-0014）的前提；关掉它要先给 UI 加模块加载，属于 UI 工程改造 |
 | 多屏覆盖层（U9） | 需要每屏一个窗口，窗口管理要重写 |

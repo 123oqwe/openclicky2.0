@@ -538,6 +538,35 @@ impl Store {
         Ok(())
     }
 
+    /// Audit evidence for one task, oldest first. The write side has to stay
+    /// append-only; this is the read side the acceptance report cites.
+    pub fn audit_rows(&self, task_id: &str) -> Result<Vec<AuditRow>> {
+        let conn = self.conn_guard()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT task_id, tool, risk, args_digest, outcome, created_at
+                 FROM audit_log WHERE task_id=?1 ORDER BY id",
+            )
+            .map_err(map_err)?;
+        let rows = stmt
+            .query_map(params![task_id], |r| {
+                Ok(AuditRow {
+                    task_id: r.get(0)?,
+                    tool: r.get(1)?,
+                    risk: r.get(2)?,
+                    args_digest: r.get(3)?,
+                    outcome: r.get(4)?,
+                    created_at: parse_time(r.get::<_, String>(5)?),
+                })
+            })
+            .map_err(map_err)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(map_err)?);
+        }
+        Ok(out)
+    }
+
     pub fn usage_between(&self, from: DateTime<Utc>, to: DateTime<Utc>) -> Result<Vec<UsageRow>> {
         let conn = self.conn_guard()?;
         let mut stmt = conn

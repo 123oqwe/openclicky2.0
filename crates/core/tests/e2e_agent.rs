@@ -325,6 +325,14 @@ fn approving_an_outside_write_lets_it_through_once() {
     let outcome = c.runner.step(&task.id).unwrap();
     assert_eq!(outcome.tool.as_deref(), Some("fs_write"));
     assert!(target.exists(), "approved write should land");
+
+    let audit = c.store.audit_rows(&task.id).unwrap();
+    assert!(
+        audit
+            .iter()
+            .any(|r| r.tool == "fs_write" && r.outcome == "ok" && r.risk == "write"),
+        "INV-5: an approved write outside the workspace must be audited, got {audit:?}"
+    );
 }
 
 #[test]
@@ -367,6 +375,26 @@ fn task_is_charged_once_at_start_and_steps_separately() {
         kinds.iter().filter(|k| **k == "agent_step").count(),
         1,
         "one step charged"
+    );
+
+    c.runner.step(&task.id).unwrap();
+    let rows = c
+        .store
+        .usage_between(
+            now - chrono::Duration::hours(1),
+            now + chrono::Duration::hours(1),
+        )
+        .unwrap();
+    let kinds: Vec<&str> = rows.iter().map(|r| r.kind.as_str()).collect();
+    assert_eq!(
+        kinds.iter().filter(|k| **k == "agent_task").count(),
+        1,
+        "INV-6: the task fee is charged once, not once per step"
+    );
+    assert_eq!(
+        kinds.iter().filter(|k| **k == "agent_step").count(),
+        2,
+        "INV-6: each finished step is charged exactly once"
     );
 }
 
