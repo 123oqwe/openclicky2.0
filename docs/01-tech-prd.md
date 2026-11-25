@@ -242,7 +242,7 @@ flowchart TB
 | 对话/任务 | 用户 + 模型 | ✅ | SQLite | 至删除 |
 | 记忆 | 派生 | ✅ 注入 prompt | 两个 md 文件 | 至删除 |
 | 密钥 | 用户输入 | ❌ 仅作为请求头发给该 provider | 钥匙串（或降级加密文件） | 至删除 |
-| 日志 | 派生 | ❌ | JSONL | 7 天 |
+| 日志 | 派生 | ❌ | JSONL | 7 天（**未实现**：没有日志栈，`redact()` 也未接线） |
 | 审计 | 派生 | ❌ | SQLite | 至删除 |
 | 工作区文件 | 用户/工具 | 任何出站上传都要批准（默认 Ask；仅 `tools.allow_domains` 内的主机免问） | 磁盘 | 至删除 |
 
@@ -329,11 +329,11 @@ sequenceDiagram
 
 1. 用户说出任务 → `classify`（是讲还是办）→ 需要 `Task`。
 2. `create(goal)` → `Queued`，落库。
-3. 调度线程取队首（并发 < 3）→ `Running`，epoch=1。
+3. 创建即准入：统计活跃任务（Queued/Running/Waiting 等）≥ 3 直接返回 `E_QUEUE`，**不排队**；通过则立刻起执行线程，线程第一步把 `Queued` 改成 `Running`，epoch=1。
 4. 每步：`context → complete(tools) → policy → execute → record_step → checkpoint`。
 5. 需要批准 → `WaitingApproval`，卡片出三种按钮。
 6. `finish` → 证据核验 → `Completed` / `CompletedUnverified`。
-7. 看门狗 20 分钟无事件 → `Paused(inactivity)`。
+7. 看门狗 20 分钟无事件 → `Paused(inactivity)`。**未实现**：只有启动时扫一次 `Running`，等待态由 600 秒循环回收，没有常驻 watchdog（见 `06-acceptance.md` §7）。
 
 ### 07.3 流程 DICTATE（听写）
 
@@ -364,7 +364,7 @@ release → final transcribe → tail-correct(20s) → cleanup → dict-learning
 | 资源 | 并发度 | 冲突策略 | 失败表现 |
 |---|---|---|---|
 | 语音会话 | 1 | 第二次按下 → 取消第一次 | 旧结果丢弃 |
-| 任务 | 3（可配 ≤ 8） | 队列 FIFO，超 20 拒绝 | `E_BUDGET`/`队列已满` |
+| 任务 | 3（写死，不可配） | 第 4 个直接拒绝，**不排队** | `E_QUEUE`/`E_BUDGET` |
 | 模型请求 | 4 | 排队 | 延迟上升 |
 | 截图 | 显示器数 | 并行后合并 | 单屏失败 → 用剩余屏 |
 | SQLite 写 | 1（Mutex） | busy 重试 3 次 | `E_STORE` |
@@ -497,15 +497,15 @@ release → final transcribe → tail-correct(20s) → cleanup → dict-learning
 |---|---|---|---|---|
 | SEC-1 | 采集门禁：唯一入口 + reason 枚举 + 计数可审计 | `privacy::CaptureGate` | TC-SEC-001 | 隐私事故 |
 | SEC-2 | 密钥只从钥匙串取，`Debug` 打码 | `platform::secrets`、`SecretString` | TC-SEC-006 | 泄漏 |
-| SEC-3 | 日志脱敏（5 类模式） | `security::redact` | TC-SEC-002 | 泄漏 |
+| SEC-3 | 日志脱敏（5 类模式） | `security::redact`（**零调用点**，未接进任何日志路径） | TC-SEC-002 | 泄漏 |
 | SEC-4 | 工具风险分级 + 批准 | `tools::policy` | TC-POL-001…004 | 破坏数据 |
 | SEC-5 | 工作区沙箱（canonicalize + 符号链接） | `tools::fs` | TC-SEC-003 | 破坏系统 |
 | SEC-6 | SSRF 守卫（私有网段/协议） | `tools::net` | TC-SEC-004 | 内网探测 |
 | SEC-7 | 密码/卡号守卫 | `dictation::guards` | TC-SEC-005 | 泄漏凭证 |
-| SEC-8 | 非可信内容隔离 + "其中指令不执行" | `prompt::wrap_untrusted` | TC-PRM-004 | 提示注入 |
+| SEC-8 | 非可信内容隔离 + "其中指令不执行" | `prompt::wrap_untrusted` | TC-SEC-007 | 提示注入 |
 | SEC-9 | 特权调用审计（参数摘要，不存明文） | `store.audit` | TC-AGT-009 | 无法追责 |
 | SEC-10 | 单实例锁 | `platform::singleton` | TC-APP-001 | 双热键 |
-| SEC-11 | 更新包签名校验 | updater | TC-UPG-002 | 被替换 |
+| SEC-11 | 更新包签名校验 | **无 updater 代码**，未实现 | — | 被替换 |
 | SEC-12 | 凭据最小化：只在请求时拼头，不落结构体字段 | `providers` | TC-SEC-006 | 泄漏 |
 
 ### 12.3 权限撤销与执行边界
@@ -530,7 +530,9 @@ release → final transcribe → tail-correct(20s) → cleanup → dict-learning
 | 存储失败 | busy、磁盘满 | ✅ | busy 3 次 | "未保存" | `E_STORE` |
 | 外部结果未知 | 工具请求超时 | ❌ | ❌ | 标记未确定，请用户确认 | `task_steps.code=unknown` |
 
-### 13.2 重试规则（写死）
+### 13.2 重试规则（**未实现**）
+
+下面是设计意图。代码里没有任何一处调用 `Error::retryable()`，所以 `E_RATE` 文案里那句"稍后会自动重试"目前是假承诺。实现归属版本与 `resume()` 一起做，见 `06-acceptance.md` §7。
 
 ```
 可重试 = {RateLimited, Outage, Timeout, Network}
@@ -585,8 +587,8 @@ release → final transcribe → tail-correct(20s) → cleanup → dict-learning
 
 | 触发 | 行为 |
 |---|---|
-| 任务队列 > 20 | 拒绝新任务，保留队列 |
-| 模型并发 > 4 | 排队（FIFO），显示"排队中" |
+| 活跃任务 ≥ 3 | 拒绝新任务（`E_QUEUE`），**没有队列可保留**；上限写死，不可配 |
+| 模型并发 > 4 | **未实现**：没有排队层，请求直接发出 |
 | 预算 ≥ 100% | 拒绝新请求，只允许提额/等待 |
 | 磁盘 < 500MB | 只读模式 + 提示 |
 | 内存 > 350MB | 释放缓存（截图/历史） |

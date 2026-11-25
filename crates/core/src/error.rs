@@ -106,7 +106,7 @@ impl Error {
                 p.label()
             ),
             Error::NoModel => "没有可用的模型。打开设置 → 模型，选一个。".into(),
-            Error::RateLimited { .. } => "请求太频繁了，稍后会自动重试。".into(),
+            Error::RateLimited { .. } => "请求太频繁了，请过一会儿再试。".into(),
             Error::Outage => "模型服务暂时不可用。".into(),
             Error::Timeout => "这次超时了。".into(),
             Error::Network(e) => format!("网络连不上：{e}"),

@@ -791,7 +791,7 @@ hotkey_up → final transcribe → diff(末 20s) → 需要则改正 → cleanup
 | 机制 | 实现 |
 |---|---|
 | 语音单飞 | `Mutex<Option<Session>>` + `AtomicBool cancel` |
-| 任务并发 | `Semaphore`（默认 3）；队列 FIFO 上限 20 |
+| 任务并发 | 计数准入：活跃任务 ≥ `MAX_ACTIVE_TASKS`(3) 就返回 `E_QUEUE`；**没有 Semaphore，也没有 FIFO 队列**，上限写死不可配 |
 | 取消 | `CancelToken { AtomicBool }`，每个工具调用点检查 |
 | 定时器 | 单 `Scheduler` 线程，每 30s tick；不用 `sleep` 精确计时 |
 | SQLite | 单写 `Mutex<Connection>` + WAL |
