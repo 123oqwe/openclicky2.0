@@ -730,3 +730,38 @@ fn a_question_waiting_for_an_answer_is_not_fed_back_as_the_answer() {
         "the question itself stays visible"
     );
 }
+
+#[test]
+fn a_parked_row_becomes_readable_again() {
+    let c = script(vec![tool_call("finish", json!({"result": "done"}))]);
+    let t = c.runner.create("会坏掉的任务").unwrap();
+    let mut row = c.store.task(&t.id).unwrap().unwrap();
+    row.checkpoint_json = "{not json".into();
+    c.store.upsert_task(&row).unwrap();
+
+    c.runner.recover_interrupted(chrono::Utc::now()).unwrap();
+
+    let repaired = c
+        .runner
+        .get(&t.id)
+        .expect("a parked row must be readable, otherwise nothing can show it");
+    assert_eq!(repaired.state, TaskState::Paused);
+}
+
+#[test]
+fn a_finished_task_keeps_its_state_even_with_a_broken_checkpoint() {
+    let c = script(vec![tool_call("finish", json!({"result": "done"}))]);
+    let t = c.runner.create("已经完成的任务").unwrap();
+    c.runner.step(&t.id).unwrap();
+    let mut row = c.store.task(&t.id).unwrap().unwrap();
+    row.checkpoint_json = "{not json".into();
+    c.store.upsert_task(&row).unwrap();
+
+    let released = c.runner.recover_interrupted(chrono::Utc::now()).unwrap();
+    assert_eq!(released, 0, "a finished task is not holding a slot");
+    assert_eq!(
+        c.store.task(&t.id).unwrap().unwrap().state,
+        "completed_unverified",
+        "history must not be rewritten to paused"
+    );
+}

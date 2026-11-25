@@ -904,11 +904,18 @@ impl Store {
     /// Park a row that cannot be parsed, without parsing it. A row that holds a
     /// queue slot and refuses to be read would otherwise lock task creation
     /// forever, because every other release path goes through `from_row`.
-    pub fn park_unreadable(&self, task_id: &str, code: &str, now: DateTime<Utc>) -> Result<()> {
+    pub fn park_unreadable(
+        &self,
+        task_id: &str,
+        code: &str,
+        repaired_checkpoint: &str,
+        now: DateTime<Utc>,
+    ) -> Result<()> {
         let conn = self.write_guard()?;
         conn.execute(
-            "UPDATE tasks SET state='paused', error_code=?1, updated_at=?2 WHERE id=?3",
-            params![code, now.to_rfc3339(), task_id],
+            "UPDATE tasks SET state='paused', error_code=?1, checkpoint_json=?2, updated_at=?3
+             WHERE id=?4",
+            params![code, repaired_checkpoint, now.to_rfc3339(), task_id],
         )
         .map_err(map_err)?;
         Ok(())

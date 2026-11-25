@@ -956,14 +956,25 @@ impl TaskRunner {
     pub fn recover_interrupted(&self, now: DateTime<Utc>) -> Result<usize> {
         let mut recovered = 0;
         // A row that will not parse still holds a queue slot, and every other
-        // release path needs `from_row`. Park it here so the queue cannot wedge.
+        // release path needs `from_row`. Park it here so the queue cannot wedge,
+        // but only when it may be holding a slot: a finished task keeps its
+        // history even if its checkpoint is unreadable.
+        let repaired = serde_json::to_string(&Checkpoint::default())
+            .map_err(|e| Error::Internal(e.to_string()))?;
         for row in self.deps.store.list_tasks(None)? {
             if from_row(row.clone()).is_ok() {
                 continue;
             }
+            let holds_a_slot = match TaskState::parse(&row.state) {
+                Ok(state) => state.is_active(),
+                Err(_) => true,
+            };
+            if !holds_a_slot {
+                continue;
+            }
             self.deps
                 .store
-                .park_unreadable(&row.id, "unreadable", now)?;
+                .park_unreadable(&row.id, "unreadable", &repaired, now)?;
             recovered += 1;
         }
         for row in self.deps.store.list_tasks(Some("running"))? {
