@@ -79,6 +79,9 @@ jobs:
       - name: invariants
         env:
           RUN_INVARIANT_MUTATIONS: "1"
+        # bash, not the default shell: the guard below is bash syntax and the
+        # default on Windows is PowerShell.
+        shell: bash
         run: |
           # If the env line above disappears, both jobs would print "skipped"
           # and the most expensive check would vanish quietly.
