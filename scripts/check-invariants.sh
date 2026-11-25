@@ -41,11 +41,12 @@ fi
 note "== secrets: no key-shaped literals in the repo =="
 # A real key is >= 20 chars of printable non-space after a known prefix.
 if command -v rg >/dev/null 2>&1; then
-  hits=$(rg -n --hidden -g '!*.json' -g '!docs/**' -g '!.git/**' \
+  hits=$(rg -n --hidden -g '!*.json' -g '!docs/**' -g '!.git/**' -g '!target/**' -g '!node_modules/**' \
         '(sk-[A-Za-z0-9]{20,}|xox[bap]-[A-Za-z0-9-]{10,}|ghp_[A-Za-z0-9]{20,})' . || true)
 else
   hits=$(grep -rnE '(sk-[A-Za-z0-9]{20,}|xox[bap]-[A-Za-z0-9-]{10,}|ghp_[A-Za-z0-9]{20,})' \
-        --exclude-dir=.git --exclude-dir=docs --exclude='*.json' . || true)
+        --exclude-dir=.git --exclude-dir=docs --exclude-dir=target --exclude-dir=node_modules \
+        --exclude='*.json' . || true)
 fi
 [ -z "$hits" ] || bad "possible credential literal: $hits"
 
@@ -61,27 +62,61 @@ if [ "$has_code" -eq 1 ]; then
     done
   fi
 
-  note "== core: no direct std::process usage =="
-  if grep -rn --include='*.rs' 'std::process' crates/core/src 2>/dev/null | grep -v '^$' >/dev/null; then
-    bad "crates/core/src uses std::process (route it through CommandRunner)"
+  note "== core: no direct std::process usage (comments ignored) =="
+  proc_hits=$(grep -rn --include='*.rs' 'std::process' crates/core/src 2>/dev/null \
+              | grep -vE ':[0-9]+: *//' || true)
+  [ -z "$proc_hits" ] || bad "crates/core uses std::process: $proc_hits"
+
+  note "== core: every module is wired, or declares UNWIRED =="
+  python3 scripts/check-wiring.py --quiet \
+    || bad "an unwired core module has no UNWIRED marker (scripts/check-wiring.py)"
+
+  note "== capture: every call site passes a guard; only voice or an explicit user action =="
+  # Ignore comments; a real call looks like `x.capture_all(&guard)`.
+  calls=$(grep -rn --include='*.rs' 'capture_all(' crates/core/src crates/platform/src apps 2>/dev/null \
+          | grep -vE ':[0-9]+: *//' | grep -v 'fn capture_all' || true)
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    case "$line" in
+      *'crates/core/src/voice.rs'*) ;;                                   # the orchestrator
+      *'apps/cli/src/main.rs'*|*'apps/desktop/src/main.rs'*) ;;          # selftest: user-initiated Calibration
+      *) echo "VIOLATION: capture outside the allowed call sites: $line"; fail=1 ;;
+    esac
+  done <<< "$calls"
+  if echo "$calls" | grep -v 'capture_all(&' >/dev/null 2>&1; then
+    bad "capture_all called without a &guard argument"
   fi
 
-  note "== capture: only one call site, and it passes a guard =="
-  calls=$(grep -rn --include='*.rs' 'capture_all' crates/core/src crates/platform/src apps 2>/dev/null \
-          | grep -v 'fn capture_all' | grep -v '^.*://' || true)
-  if [ -n "$calls" ]; then
-    # Every production call must pass a guard argument (contains '(' and a variable),
-    # and must be inside voice.rs (the only authorised orchestration point).
-    echo "$calls" | while read -r line; do
-      case "$line" in
-        *crates/core/src/voice.rs*|*crates/platform/src/*) ;;
-        *) echo "VIOLATION: capture outside voice.rs: $line" ;;
-      esac
-    done
-    if echo "$calls" | grep -vE 'capture_all\((&|guard)' >/dev/null; then
-      bad "capture_all called without a guard argument"
+  note "== linux deps come from one script =="
+  # Installing the built artifact itself is fine; declaring a second package
+  # list is what drifted. A path argument marks the former.
+  inline_deps=$(grep -n 'apt-get install' .github/workflows/*.yml 2>/dev/null \
+                | grep -vE '\./|/dist/' || true)
+  [ -z "$inline_deps" ] || bad "a workflow installs packages inline; call scripts/linux-deps.sh ($inline_deps)"
+
+  note "== new public surface has a line in the test matrix =="
+  python3 scripts/check-new-tests.py \
+    || bad "a new public function has no case in docs/04-test-design.md"
+
+  note "== invariant cases can fail =="
+  if [ "${RUN_INVARIANT_MUTATIONS:-0}" = "1" ]; then
+    mutation_out=$(python3 scripts/check-invariants-can-fail.py 2>&1) || {
+      echo "$mutation_out"
+      bad "an invariant case cannot fail, so it proves nothing"
+    }
+    echo "$mutation_out"
+    # A switch that is on but proves nothing is the failure this whole rule
+    # exists to prevent: an empty harness would otherwise report success.
+    if ! echo "$mutation_out" | grep -q '^OK '; then
+      bad "the mutation harness reported no cases, so it checked nothing"
     fi
+  else
+    note "   skipped here (needs cargo); the rust jobs run it with RUN_INVARIANT_MUTATIONS=1"
   fi
+
+  note "== the diff stays inside the declared task scope =="
+  python3 scripts/check-scope.py \
+    || bad "the diff touches files outside docs/.scope-allow"
 
   note "== permissions: probe before tool execution =="
   if ! grep -rn --include='*.rs' 'permission_probe\|PermissionProbe' crates/core/src >/dev/null 2>&1; then

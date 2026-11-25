@@ -21,8 +21,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Fetch the implementation branch (tests live there)
-        run: git fetch --no-tags origin feat/impl:refs/remotes/origin/feat/impl || true
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -42,24 +40,19 @@ jobs:
   prepare:
     name: prepare
     runs-on: ubuntu-latest
-    outputs:
-      has_code: ${{ steps.check.outputs.has_code }}
     steps:
       - uses: actions/checkout@v4
-      - id: check
+      - name: The workspace must be in the tree
         run: |
-          if [ -f Cargo.toml ]; then
-            echo "has_code=true" >> "$GITHUB_OUTPUT"
-            echo "workspace present: running code checks"
-          else
-            echo "has_code=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::no Cargo workspace on this ref yet (code lives on the implementation branch); code checks are skipped, not passed"
+          if [ ! -f Cargo.toml ]; then
+            echo "::error::no Cargo workspace on this ref. The code lives on main, so a ref without it is a broken checkout, not a docs-only ref."
+            exit 1
           fi
+          echo "workspace present: running code checks"
 
   rust:
     name: rust-${{ matrix.os }}
     needs: prepare
-    if: needs.prepare.outputs.has_code == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -67,14 +60,16 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # check-new-tests.py compares against docs/.surface-baseline, which a
+          # depth-1 clone cannot resolve. This repo is small.
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - name: System deps (Linux)
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libasound2-dev libxcb1-dev libxrandr-dev libdbus-1-dev pkg-config
+        run: bash scripts/linux-deps.sh
       - name: fmt
         run: cargo fmt --all -- --check
       - name: clippy
@@ -82,4 +77,16 @@ jobs:
       - name: test
         run: cargo test --workspace
       - name: invariants
-        run: bash scripts/check-invariants.sh
+        env:
+          RUN_INVARIANT_MUTATIONS: "1"
+        # bash, not the default shell: the guard below is bash syntax and the
+        # default on Windows is PowerShell.
+        shell: bash
+        run: |
+          # If the env line above disappears, both jobs would print "skipped"
+          # and the most expensive check would vanish quietly.
+          test "${RUN_INVARIANT_MUTATIONS}" = "1" || {
+            echo "::error::the mutation check must run in this job"
+            exit 1
+          }
+          bash scripts/check-invariants.sh

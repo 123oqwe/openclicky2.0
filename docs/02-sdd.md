@@ -3,7 +3,7 @@
 | 项 | 值 |
 |---|---|
 | 编号 | OC2-SDD |
-| 版本 | 1.5（2026-11-23，tasks 增加 owner 列；迁移说明对齐 ADR-0015 Q9） |
+| 版本 | 1.6（2026-11-23，命令面补首跑与交办；provider 改为按次重建） |
 | 状态 | 已批准 |
 | 依据 | `01-tech-prd.md` v1.0、`adr/ADR-0001…0013` |
 | 适用 | `crates/core`、`crates/platform`、`apps/desktop`、`apps/cli`、前端 |
@@ -506,16 +506,18 @@ pub struct ToolCtx { pub workspace: PathBuf, pub task_id: String, pub http: Arc<
 
 pub struct Policy;
 impl Policy {
-    pub fn decide(&self, risk: Risk, approvals: &Approvals, now: DateTime<Utc>) -> Approval;
+    pub fn decide(&self, call: CallContext, approvals: &Approvals, now: DateTime<Utc>) -> Approval;
 }
 pub struct Approvals { pub per_conversation: bool, pub denied_until: Option<DateTime<Utc>> }
 ```
+
+`CallContext` 带三个只读事实：`risk`、`outside_workspace`（Write 才有意义）、`host_allowed`（External 的目标主机在 `tools.allow_domains` 里）。策略本身不读配置，白名单判断在调用方完成，因此矩阵可以用纯函数测试。
 
 工具清单与风险：
 
 | 工具 | 风险 | 参数 | 说明 |
 |---|---|---|---|
-| `fetch_url` | External | `{url}` | 仅 http/https；SSRF 守卫；HTML→文本；≤ 200k 字符 |
+| `fetch_url` | External | `{url}` | 仅 http/https；SSRF 守卫；默认需批准，白名单主机免问；HTML→文本；≤ 200k 字符 |
 | `http_get_json` | External | `{url, headers?}` | JSON 响应 ≤ 1MB |
 | `fs_list` | Read | `{path}` | 工作区内 |
 | `fs_read` | Read | `{path, max_bytes?}` | ≤ 256KB |
@@ -575,9 +577,13 @@ CREATE TABLE tasks (
   heartbeat_at TEXT, epoch INTEGER NOT NULL DEFAULT 1, retries INTEGER NOT NULL DEFAULT 0,
   units REAL NOT NULL DEFAULT 0, steps_done INTEGER NOT NULL DEFAULT 0,
   prompt_version TEXT, tool_schema_version TEXT,
-  parent_session_id TEXT, result TEXT, error_code TEXT
+  parent_session_id TEXT, result TEXT, error_code TEXT,
+  waiting_since TEXT
 );
 CREATE INDEX idx_tasks_state ON tasks(state, updated_at);
+-- 以下六个列由 M002 / M003 的 ALTER TABLE 追加，此处只画最终形状：
+-- owner, retries, prompt_version, tool_schema_version, waiting_since（M002）
+-- pause_reason（M003）
 
 CREATE TABLE task_steps (
   id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -610,6 +616,45 @@ CREATE TABLE routines (
 CREATE TABLE dict_entries (
   heard TEXT PRIMARY KEY, corrected TEXT NOT NULL, learned_at TEXT NOT NULL
 );
+
+-- M002：一个任务的一步只有一行；重试不得重复记账。
+CREATE UNIQUE INDEX idx_task_steps_unique ON task_steps(task_id, step);
+CREATE INDEX idx_routines_next ON routines(next_run_at);
+CREATE INDEX idx_usage_task ON usage_events(task_id);
+
+-- M003：批准账本与产物归属。两者都是“重启后还能回答”的记录，
+-- 不能只活在任务的 checkpoint JSON 里。
+CREATE TABLE approvals (
+  id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  step INTEGER NOT NULL, tool TEXT NOT NULL, risk TEXT NOT NULL,
+  args_digest TEXT NOT NULL, prompt_json TEXT NOT NULL,
+  decision TEXT NOT NULL DEFAULT 'pending',
+  created_at TEXT NOT NULL, decided_at TEXT, consumed_at TEXT
+);
+CREATE UNIQUE INDEX idx_approvals_step ON approvals(task_id, step);
+CREATE INDEX idx_approvals_open ON approvals(decision, created_at);
+
+CREATE TABLE artifacts (
+  id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  path TEXT NOT NULL, kind TEXT NOT NULL, bytes INTEGER NOT NULL,
+  sha256 TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE INDEX idx_artifacts_task ON artifacts(task_id);
+
+-- 外部内容表：正文只在 messages 里存一份，索引单独保存，删除随行级联。
+CREATE VIRTUAL TABLE messages_fts USING fts5(
+  content, content='messages', content_rowid='rowid', tokenize='unicode61'
+);
+CREATE TRIGGER messages_ai AFTER INSERT ON messages BEGIN
+  INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
+END;
+CREATE TRIGGER messages_ad AFTER DELETE ON messages BEGIN
+  INSERT INTO messages_fts(messages_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
+END;
+CREATE TRIGGER messages_au AFTER UPDATE ON messages BEGIN
+  INSERT INTO messages_fts(messages_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
+  INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
+END;
 ```
 
 数据字典（关键字段语义）：
@@ -632,6 +677,19 @@ CREATE TABLE dict_entries (
 | 删除 | 单事务删表 → 事务提交后再删文件（文件失败记 `DeletionReport`） |
 
 无事件总线。断点续做依赖 `checkpoint_json`（权威）。
+
+### 06.1 2026-11-24 修复批次落地的约束
+
+| 约束 | 落地位置 | 说明 |
+|---|---|---|
+| 迁移到 v2 | `store/migrations.rs` M002 | 加 `owner/retries/prompt_version/tool_schema_version/waiting_since`，步骤唯一索引，`routines(next_run_at)` 与 `usage_events(task_id)` 索引 |
+| 审计只追加 | M002 触发器 `audit_log_no_update` | UPDATE 直接 `RAISE(ABORT)`；DELETE 只在删除流程里发生 |
+| 批准一次性 | `agent/runner.rs` `grant:<tool>:<digest>` | 执行完即删，同一调用第二次重新询问 |
+| 拒绝静默 30 分钟 | `Checkpoint.denied_until` | 持久化在 checkpoint 里，跨重启有效 |
+| 等待超时 | `persist()` 写 `waiting_since`，`expire_stale_waiting` | 24 小时后转 `Paused(waiting_timeout)` |
+| 任务并发上限 | `TaskRunner::create` | 活跃任务 ≥3 返回 `E_QUEUE` |
+| 预算覆盖全部出站 | `voice.rs`、`dictation.rs`、`agent/runner.rs` | 发请求前统一 `usage.can_start()` |
+| SSRF | `tools/net.rs` `guard_resolved` + `http` `redirects(0)` | 解析真实 IP；不跟随重定向 |
 
 ### 07 同步接口与调用契约
 
@@ -710,7 +768,7 @@ hotkey_up → final transcribe → diff(末 20s) → 需要则改正 → cleanup
 | Queued | 调度 | Running | 有预算 & 并发<上限 |
 | Queued | 取消 | Canceled | — |
 | Running | 工具成功 | Running | — |
-| Running | 需要批准 | WaitingApproval | risk ∈ {Write(区外), Destructive, External(上传)} |
+| Running | 需要批准 | WaitingApproval | risk ∈ {Write(区外), Destructive, External(主机不在白名单)} |
 | WaitingApproval | 用户批准 | Running | — |
 | WaitingApproval | 用户拒绝 | Running（改道）或 Failed | 模型重试上限 |
 | Running | ask_user | WaitingUser | — |
@@ -733,7 +791,7 @@ hotkey_up → final transcribe → diff(末 20s) → 需要则改正 → cleanup
 | 机制 | 实现 |
 |---|---|
 | 语音单飞 | `Mutex<Option<Session>>` + `AtomicBool cancel` |
-| 任务并发 | `Semaphore`（默认 3）；队列 FIFO 上限 20 |
+| 任务并发 | 计数准入：活跃任务 ≥ `MAX_ACTIVE_TASKS`(3) 就返回 `E_QUEUE`；**没有 Semaphore，也没有 FIFO 队列**，上限写死不可配 |
 | 取消 | `CancelToken { AtomicBool }`，每个工具调用点检查 |
 | 定时器 | 单 `Scheduler` 线程，每 30s tick；不用 `sleep` 精确计时 |
 | SQLite | 单写 `Mutex<Connection>` + WAL |
@@ -767,11 +825,12 @@ impl Error { pub fn code(&self) -> &'static str; pub fn user_message(&self) -> S
 | `E_TIMEOUT` | 超时了 | 是 |
 | `E_PERM` | 缺少「屏幕录制」权限 | 否 |
 | `E_BUDGET` | 今天/本月预算用完了 | 否 |
+| `E_QUEUE` | 同时跑的任务太多（上限 3） | 否 |
 | `E_POLICY` | 这个操作需要你确认 | 否 |
 | `E_STATE` | 内部状态异常（已记录） | 否 |
 | `E_PROTOCOL` | 模型返回了无法解析的内容 | 否（降级纯文本） |
 | `E_MODEL` | 没有可用的模型 | 否 |
-| `E_NET` | 网络连不上 | 是（1 次） |
+| `E_NET` | 网络连不上 | 是（最多 2 次） |
 | `E_SHORT` | 按住时间太短 | 否 |
 | `E_EMPTY_AUDIO` | 没听到声音 | 否 |
 | `E_BAD_REQ` | 请求参数不对 | 否 |
@@ -810,10 +869,13 @@ impl Error { pub fn code(&self) -> &'static str; pub fn user_message(&self) -> S
 
 | 命令 | 入参 | 返回 | 说明 |
 |---|---|---|---|
-| `app_state` | — | `{state, model, budget, config_path, data_dir}` | 首屏与刷新 |
+| `app_state` | — | `{state, has_key, ready, model, kind, base_url, budget, config_path, data_dir}` | `ready=false` 触发首跑向导 |
+| `list_models` | `{key?}` | `[model]` | 首跑第 2 步：用刚粘的 key 拉模型 |
+| `save_provider` | `{key?, model}` | — | 首跑第 3 步：写钥匙串 + `config.toml`；provider 按次重建，立即生效 |
 | `ask_text` | `{text}` | 回答文本 | 打字提问，不采集 |
 | `usage` | — | `{daily_used, daily_limit, percent, blocked}` | 用量环 |
 | `tasks` | — | `[{id,name,state,result}]` | 任务列表 |
+| `create_task` | `{goal}` | `id` | 建任务并在后台线程执行 |
 | `approve_task` / `deny_task` / `cancel_task` | `{id}` | — | 审批与取消 |
 | `cancel_voice` | — | — | 打断当前语音会话 |
 | `selftest` | — | 每屏尺寸/字节 | 抓屏自检 |
@@ -843,7 +905,7 @@ impl Error { pub fn code(&self) -> &'static str; pub fn user_message(&self) -> S
 | SEC-1 CaptureGate | `privacy.rs` | **类型级**：`capture_all(&guard)` 需要 guard；guard 只由用户动作构造 | `capture_gate.rs` |
 | SEC-2 密钥 | `platform::secrets`、`SecretString` | 只在拼请求头时取值；`Debug` 打码 | `secrets.rs` |
 | SEC-3 脱敏 | `security::redact` | 每条日志写入前 | `redact.rs` |
-| SEC-4 风险策略 | `tools::policy` | 每次工具调用前，模型外判定。`Read=Allow`；`Write(区内)=Allow / 区外=Ask`；`External(fetch)=Allow（SSRF 守卫）/ 上传本机文件=Ask`；`Destructive=Ask` | `tools_policy.rs` |
+| SEC-4 风险策略 | `tools::policy` | 每次工具调用前，模型外判定。`Read=Allow`；`Write(区内)=Allow / 区外=Ask`；`External=Ask`，仅当目标主机在 `tools.allow_domains` 里才 `Allow`（出站默认要批准：URL 本身就是一条外发通道，任何“这看起来不像上传”的启发式判断都是假保护）；`Destructive=Ask` | `tools/policy.rs` |
 | SEC-5 沙箱 | `tools::fs::resolve_in_workspace` | 每次路径解析，含符号链接检查 | `tools_fs.rs` |
 | SEC-6 SSRF | `tools::net::guard_url` | 每次出站请求前 | `tools_net.rs` |
 | SEC-7 注入守卫 | `dictation::guards` | **每次**注入前（tick 与 finish 都要过），终端与密码两类 | `inject_guards.rs` |
@@ -930,12 +992,12 @@ weights = { voice = 1.0, dictation = 0.5, agent_step = 3.0 }
 [tools]
 shell = false
 allow_private_network = false
+allow_domains = []          # 出站白名单；空 = 每次 External 调用都要批准
 workspace = ""             # 空 = <data>/workspace
 max_steps = 30
 
 [privacy]
-debug_allow_text = false
-keep_screenshots_hours = 24
+debug_allow_text = false        # 截图仅内存 ≤30s，不落盘，因此没有保留期开关
 
 [ui]
 cursor_color = "#ffd166"

@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <title>OpenClicky</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin:0; font:14px/1.6 -apple-system, system-ui, sans-serif; background:#141414; color:#eee;
+           display:grid; grid-template-columns: 1.2fr 1fr; height:100vh; }
+    section { padding:18px 20px; overflow:auto; }
+    section + section { border-left:1px solid #2a2a2a; }
+    h1 { font-size:16px; margin:0 0 4px; }
+    h2 { font-size:13px; margin:18px 0 6px; color:#bbb; font-weight:600; }
+    .muted { color:#888; font-size:12px; }
+    input, select, button { font:inherit; }
+    input, select { width:100%; padding:8px 10px; border-radius:8px; border:1px solid #333; background:#1d1d1d; color:#eee; }
+    button { padding:8px 12px; border-radius:8px; border:1px solid #333; background:#222; color:#eee; cursor:pointer; }
+    button:hover:not(:disabled) { background:#2a2a2a; }
+    button:disabled { opacity:.4; cursor:default; }
+    .row { display:flex; gap:8px; margin-top:8px; align-items:center; }
+    .card { border:1px solid #2a2a2a; border-radius:10px; padding:10px 12px; margin-top:10px; background:#191919; }
+    .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:#2a2a2a; font-size:12px; }
+    .pill.rec { background:#7f1d1d; color:#fecaca; }
+    pre { white-space:pre-wrap; margin:6px 0 0; font:inherit; }
+    .err { color:#fca5a5; }
+    .task { display:flex; gap:8px; align-items:flex-start; justify-content:space-between; }
+    .task .actions { display:flex; gap:6px; }
+    .task .body { min-width:0; flex:1; }
+    .pending { border-top:1px solid #2a2a2a; margin-top:8px; padding-top:8px; }
+    .pending pre.args { color:#ccc; font-size:12px; }
+    .notice { color:#fcd34d; font-size:12px; margin-top:4px; }
+    .notice code { color:#888; }
+    .subtitle { min-height:1.4em; color:#ffd166; }
+    .planned { outline:1px solid #34d399; border-radius:8px; }
+    .pill.warn { background:#78350f; color:#fde68a; }
+    .pill.bad { background:#7f1d1d; color:#fecaca; }
+    .card .muted + .muted { margin-top:2px; }
+    #approvals .card { border-color:#78350f; }
+    #planItems > div { margin-top:4px; }
+    .empty { color:#888; font-size:12px; margin-top:8px; }
+  </style>
+</head>
+<body>
+  <section>
+    <h1>OpenClicky</h1>
+    <div class="muted"><span id="state" class="pill">…</span> <span id="meta"></span></div>
+
+    <!-- 首跑向导：没有 key、没有模型、或系统权限缺失时出现 -->
+    <div id="onboard" class="card" hidden>
+      <h2 style="margin-top:0">三步开始</h2>
+      <div class="muted">1. 粘贴你自己的 API key（只存在这台电脑的系统钥匙串里）</div>
+      <div class="row"><input id="key" type="password" placeholder="sk-…" autocomplete="off" /></div>
+      <div class="row">
+        <button id="fetch">拉取模型</button>
+        <span class="muted" id="fetchMsg"></span>
+      </div>
+      <div class="row"><select id="models" disabled><option>先拉取模型</option></select></div>
+      <div class="row"><button id="save" disabled>保存并开始</button></div>
+
+      <div id="permStep" hidden>
+        <h2>3. 打开这三项系统权限</h2>
+        <div class="muted">缺哪项就点哪项；改完回到这里会自动刷新。</div>
+        <div id="perms"></div>
+        <div id="permGuide" class="muted"></div>
+        <div class="row"><button id="recheckPerm">重新检查</button></div>
+      </div>
+    </div>
+
+    <div id="chat">
+      <div class="row">
+        <input id="q" placeholder="问点什么，或按住 Ctrl+Alt+Space 说话" />
+        <button id="send">发送</button>
+        <button id="stop" title="停止">停止</button>
+      </div>
+      <div class="card"><div class="muted">回答</div><pre id="answer">—</pre></div>
+      <div class="subtitle" id="subtitle"></div>
+      <div class="card" id="annotations" hidden>
+        <div class="muted">标注计划</div>
+        <div id="planItems"></div>
+      </div>
+      <div class="row"><button id="selftest">抓屏自检</button></div>
+      <div class="card"><div class="muted">用量</div><pre id="usage">—</pre></div>
+      <div id="approvals"></div>
+      <div id="notices"></div>
+    </div>
+  </section>
+
+  <section>
+    <h1>任务</h1>
+    <div class="muted">说一件事，或在这里写下来；需要你同意时会出现按钮</div>
+    <div class="row">
+      <input id="goal" placeholder="例如：把桌面上的三张截图整理成一个清单" />
+      <button id="create">交办</button>
+    </div>
+    <div id="tasks"></div>
+    <div class="empty" id="tasksEmpty">还没有任务</div>
+  </section>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

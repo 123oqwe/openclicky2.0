@@ -53,7 +53,7 @@
 - `ScriptedTransport`：按 `(method, path)` 或请求序号返回预置响应/错误；可断言请求体（含图片是否随附、注解提示是否注入）。
 - `FakeScreen/Audio/Transcriber/SpeechOut/Injector/Overlay/Clock/Store(tmp)`：内存实现，记录调用序列。
 - 三层测试：单元（模块）→ 集成（`tests/e2e_*.rs` 驱动完整链路）→ 手工冒烟（真实进程，记录在 `06-acceptance.md`）。
-- 覆盖率目标：`core` ≥ 80%（`cargo llvm-cov`，CI 仅 macOS 统计）。
+- 覆盖率目标：`core` ≥ 80%（`cargo llvm-cov`，CI 仅 macOS 统计）。**这是目标值，CI 尚未接入测量；在接入前不得作为发布门槛**，未接入时记未测。
 
 ## 08 理由与取舍
 

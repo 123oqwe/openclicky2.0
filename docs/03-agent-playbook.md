@@ -128,7 +128,7 @@
 | `crates/core/src/ports.rs` | 全模块契约 |
 | `crates/core/src/store/migrations.rs` | 迁移不可并行 |
 | `docs/01-tech-prd.md`、`docs/02-sdd.md` | 权威文档 |
-| `Cargo.toml` / `pnpm-lock.yaml` | 依赖解析冲突 |
+| `Cargo.toml` | 依赖解析冲突 |
 | `.github/workflows/` | CI 语义 |
 
 隔离要求：代码隔离 = 独立分支（必要时 worktree）；运行隔离 = 独立 `--data-dir`、独立端口、独立测试库。**worktree 不是安全沙箱**，不隔离数据库与凭证。
@@ -222,13 +222,16 @@ PR 模板（`.github/PULL_REQUEST_TEMPLATE.md`）必含：
 | 格式 | `cargo fmt --all -- --check` |
 | Lint | `cargo clippy --workspace --all-targets -- -D warnings` |
 | 测试 | `cargo test --workspace` |
-| 前端 | `pnpm -C apps/desktop/ui typecheck && pnpm -C apps/desktop/ui test` |
 | 构建（三平台） | `cargo build --workspace` |
 | 守护检查 | `bash scripts/check-invariants.sh`（core 无 GUI/网络依赖、无硬编码密钥、采集单入口） |
 
+前端目前无自动化检查（`apps/desktop/ui/dist` 直接入库，见 ADR-0014）；新增前端构建时必须同时加 `package.json` 与 CI job。
+
+**跨平台测试里不要用 `#[cfg(unix)]` 去守卫 `mut` 或只在该平台使用的绑定**：`-D warnings` 会在平台关掉那半边时把 `unused_mut` / `unused_variables` 变成编译错误，本地 macOS 全绿、CI 的 Windows 红。用两平台都存在的形状（例如 `#[cfg(unix)] const EXTRA: &[&str]` 再 `chain`），不要用条件 `push`。同理，任何写进文档源的脚本都别拿 `str(path)` 做目录判断，Windows 用反斜杠，改用 `Path.parts`。
+
 必须防止 **"两个 PR 各自绿、一起合就红"**：合并前在最新 main 上 rebase；启用 merge queue 时必须配置 `merge_group` 触发器。
 
-`main` 保护：必需检查（上面 6 项）、线性历史、禁强制推送、禁直推。
+`main` 保护：必需检查（上面 5 项）、线性历史、禁强制推送、禁直推。
 
 例外（绕过）：只有人类维护者，需在 PR 描述写原因 + 补验计划，并在 `docs/06-acceptance.md` 记录。
 

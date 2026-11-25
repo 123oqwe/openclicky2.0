@@ -94,7 +94,7 @@ Tauri 2 壳 + Rust 核心 + 无框架 TypeScript；SQLite；TOML 配置；系统
 | H-5 | keyring 在主流 Linux 桌面可用 | 未验证 | 冒烟：GNOME/KDE | 加密文件降级（已设计） |
 | H-6 | 供应商兼容端点支持 vision + SSE | 未验证 | `doctor --online` | 提示切换 provider |
 
-### 02.5 非目标（本次明确不做；延期项见 ADR-0015）
+### 02.5 非目标（本版本不实现；归属与延期见 ADR-0015）
 
 | 非目标 | 原因 | 若将来要做的前置 |
 |---|---|---|
@@ -117,7 +117,7 @@ Tauri 2 壳 + Rust 核心 + 无框架 TypeScript；SQLite；TOML 配置；系统
 
 - 每条技术需求必须有唯一编号 `TR-xx`，并能反查：来源（源 PRD 条目/质量要求/平台限制）、责任组件、验证用例。
 - 反向也要成立：不存在没有需求依据的工程建设。
-- 详细规格见**附录 A（TR 规格表，10 字段）**；这里只给索引与承接关系。
+- 详细规格见**附录 A（TR 规格表，9 个表字段）**；这里只给索引与承接关系。
 
 ### 03.2 索引（摘要）
 
@@ -135,7 +135,7 @@ Tauri 2 壳 + Rust 核心 + 无框架 TypeScript；SQLite；TOML 配置；系统
 | TR-10 | B18 | 麦克风异常自动切换并说明；断网自动重连 | `audio`,`providers` | TC-AUD-002 |
 | TR-11 | C1–C9 | 打字提问、附件、草稿保留、滚动位置 | `ui`,`store` | TC-UI-003 |
 | TR-12 | D1–D4 | 指与画的协议、坐标换算、锚点跟随 | `annotations` | TC-ANNO-001…013 |
-| TR-13 | D5–D8 | 卡片/3D/回放/次数限制 | 裁剪（见非目标） | — |
+| TR-13 | D5–D8 | 卡片/3D/回放/次数限制 | 延期到 v2.3（ADR-0015 Q8，规格保留） | — |
 | TR-14 | E1–E9 | 带做：命中推进、miss 释放、≤15 步、continue 门 | `walkthrough` | TC-WALK-001…005 |
 | TR-15 | F1–F10 | 听写：增量出字、整理、词典、终端安全、粘回原剪贴板 | `dictation` | TC-DICT-001…010 |
 | TR-16 | G1–G3 | 替你写：看屏起草、就地改、失败兜底 | `dictation`,`prompt` | TC-DICT-011 |
@@ -143,8 +143,8 @@ Tauri 2 壳 + Rust 核心 + 无框架 TypeScript；SQLite；TOML 配置；系统
 | TR-18 | H4–H10 | 任务卡、进度折叠、追加消息、Stop/Retry/Keep going、长任务 | `agent`,`ui` | TC-AGT-003/004 |
 | TR-19 | H11,H12,H18 | 看门狗、历史保留、模型失败自愈 | `agent` | TC-AGT-005, TC-ERR-003 |
 | TR-20 | H16,H17 | 表格输出规范；Your turn + Open page | `agent`,`ui` | TC-AGT-008 |
-| TR-21 | I1–I9 | 连接应用与多账号 | 裁剪为 MCP/HTTP 工具 | TC-TOOL-* |
-| TR-22 | J1–J7 | Chrome 扩展办事 | 非目标 | — |
+| TR-21 | I1–I9 | 连接应用与多账号 | 本期用 MCP/HTTP 工具，连接器延期到 v2.2 | TC-TOOL-* |
+| TR-22 | J1–J7 | Chrome 扩展办事 | 延期到 v2.2（ADR-0015 Q8，规格保留） | — |
 | TR-23 | K1–K8 | 操作电脑（drive） | 裁剪为"工具 + 批准"，不做全局接管 | TC-POL-* |
 | TR-24 | L1–L9 | 定时任务语义（补跑一次、三连失败暂停、离线不计） | `routines` | TC-RTN-001…004 |
 | TR-25 | M1–M9 | 建议与下一步的打扰预算 | `suggest` | TC-SUG-001…004 |
@@ -153,6 +153,7 @@ Tauri 2 壳 + Rust 核心 + 无框架 TypeScript；SQLite；TOML 配置；系统
 | TR-28 | S1–S5 | 隐私、删除、密钥 | `security`,`store` | TC-SEC-001…006 |
 | TR-29 | T1–T4 | 更新、单实例、自启 | `updater`,`singleton` | TC-APP-001/002 |
 | TR-30 | 质量目标 | 首字/首音延迟、CPU、内存 | 全链路 | TC-PERF-* (本地) |
+| TR-31 | A1–A13 | 首跑与权限引导：装 → 填 key/模型 → 授权 → 问出第一句 | `onboarding`,`ui` | TC-ONB-001/002 |
 
 ---
 
@@ -235,15 +236,15 @@ flowchart TB
 
 | 数据 | 起点 | 是否出境 | 本机落地 | 保留 |
 |---|---|---|---|---|
-| 截图 | 按键瞬间 | ✅ 单次请求 | 仅内存；可选最近 1 帧用于重绘 | ≤ 24h |
+| 截图 | 按键瞬间 | ✅ 单次请求 | 仅内存，重绘缓存 30 秒，不落盘 | ≤ 30s |
 | 麦克风音频 | 按键期间 | ✅ STT | 内存；失败可留 1 份重试 | ≤ 24h |
 | 转写文本 | STT | ✅ 作为用户消息 | SQLite | 至删除 |
 | 对话/任务 | 用户 + 模型 | ✅ | SQLite | 至删除 |
 | 记忆 | 派生 | ✅ 注入 prompt | 两个 md 文件 | 至删除 |
 | 密钥 | 用户输入 | ❌ 仅作为请求头发给该 provider | 钥匙串（或降级加密文件） | 至删除 |
-| 日志 | 派生 | ❌ | JSONL | 7 天 |
+| 日志 | 派生 | ❌ | JSONL | 7 天（**未实现**：没有日志栈，`redact()` 也未接线） |
 | 审计 | 派生 | ❌ | SQLite | 至删除 |
-| 工作区文件 | 用户/工具 | 上传时需批准 | 磁盘 | 至删除 |
+| 工作区文件 | 用户/工具 | 任何出站上传都要批准（默认 Ask；仅 `tools.allow_domains` 内的主机免问） | 磁盘 | 至删除 |
 
 ### 05.5 架构箭头的含义（禁止一条线糊过去）
 
@@ -322,17 +323,17 @@ sequenceDiagram
   OR->>OV: clear()
 ```
 
-**各步失败去向**：`capture` 失败 → 无图回答 + 提示缺权限；`stt` 失败 → 重试 1 次（总共 2 次）→ `E_SHORT/E_NET`；`chat` 失败 → 分类错误卡；`speech` 失败 → OS TTS → 剪贴板；`store` 失败 → 回答仍展示，标"未保存"。
+**各步失败去向**：`capture` 失败 → 无图回答 + 提示缺权限；`stt` 失败 → 最多重试 2 次（合计 3 次尝试）→ `E_SHORT/E_NET`；`chat` 失败 → 分类错误卡；`speech` 失败 → OS TTS → 剪贴板；`store` 失败 → 回答仍展示，标"未保存"。
 
 ### 07.2 流程 TASK（交办）
 
 1. 用户说出任务 → `classify`（是讲还是办）→ 需要 `Task`。
 2. `create(goal)` → `Queued`，落库。
-3. 调度线程取队首（并发 < 3）→ `Running`，epoch=1。
+3. 创建即准入：统计活跃任务（Queued/Running/Waiting 等）≥ 3 直接返回 `E_QUEUE`，**不排队**；通过则立刻起执行线程，线程第一步把 `Queued` 改成 `Running`，epoch=1。
 4. 每步：`context → complete(tools) → policy → execute → record_step → checkpoint`。
 5. 需要批准 → `WaitingApproval`，卡片出三种按钮。
 6. `finish` → 证据核验 → `Completed` / `CompletedUnverified`。
-7. 看门狗 20 分钟无事件 → `Paused(inactivity)`。
+7. 看门狗 20 分钟无事件 → `Paused(inactivity)`。**未实现**：只有启动时扫一次 `Running`，等待态由 600 秒循环回收，没有常驻 watchdog（见 `06-acceptance.md` §7）。
 
 ### 07.3 流程 DICTATE（听写）
 
@@ -363,7 +364,7 @@ release → final transcribe → tail-correct(20s) → cleanup → dict-learning
 | 资源 | 并发度 | 冲突策略 | 失败表现 |
 |---|---|---|---|
 | 语音会话 | 1 | 第二次按下 → 取消第一次 | 旧结果丢弃 |
-| 任务 | 3（可配 ≤ 8） | 队列 FIFO，超 20 拒绝 | `E_BUDGET`/`队列已满` |
+| 任务 | 3（写死，不可配） | 第 4 个直接拒绝，**不排队** | `E_QUEUE`/`E_BUDGET` |
 | 模型请求 | 4 | 排队 | 延迟上升 |
 | 截图 | 显示器数 | 并行后合并 | 单屏失败 → 用剩余屏 |
 | SQLite 写 | 1（Mutex） | busy 重试 3 次 | `E_STORE` |
@@ -414,9 +415,9 @@ release → final transcribe → tail-correct(20s) → cleanup → dict-learning
 |---|---|---|---|---|---|
 | `HttpTransport::post_json` | URL 合法 | 已取得响应（任意状态码） | 连接/DNS/TLS/超时 | 调用方给 | 幂等（GET 类）；POST 由上层决定 |
 | `post_json_stream` | — | 已建立流 | 同上 + 协议 | 首字节 30s | 不重试 |
-| `ScreenSource::capture_all(&CaptureGuard)` | 必须持有 `CaptureGuard`（类型级） | 至少一屏成功 | 无权限/无显示器/编码 | 1s/屏，总 1.5s | 可重试 1 次 |
+| `ScreenSource::capture_all(&CaptureGuard)` | 必须持有 `CaptureGuard`（类型级） | 至少一屏成功 | 无权限/无显示器/编码 | 1s/屏，总 1.5s | 可重试最多 2 次（合计 3 次尝试） |
 | `AudioSource::start/stop` | 设备可用 | 已取得完整 PCM | 无权限/设备丢失 | — | start 幂等 |
-| `Transcriber::transcribe` | 音频 ≥ 200ms | 文本（可能空） | 供应商/音频 | 30s | 可重试 1 次 |
+| `Transcriber::transcribe` | 音频 ≥ 200ms | 文本（可能空） | 供应商/音频 | 30s | 可重试最多 2 次（合计 3 次尝试） |
 | `ChatProvider::complete` | 有 key、有 model | 完整文本/工具调用 | 9 类（见 §13.1） | 180s | 仅可重试类 |
 | `complete_stream` | 同上 | 全部 delta 已投递 | 同上 + 断流 | 首字节 30s | 产出后不重试 |
 | `SpeechOut::speak` | 文本非空 | 播放句柄（可取消） | 供应商/设备 | — | 不重试，降级 |
@@ -496,15 +497,15 @@ release → final transcribe → tail-correct(20s) → cleanup → dict-learning
 |---|---|---|---|---|
 | SEC-1 | 采集门禁：唯一入口 + reason 枚举 + 计数可审计 | `privacy::CaptureGate` | TC-SEC-001 | 隐私事故 |
 | SEC-2 | 密钥只从钥匙串取，`Debug` 打码 | `platform::secrets`、`SecretString` | TC-SEC-006 | 泄漏 |
-| SEC-3 | 日志脱敏（5 类模式） | `security::redact` | TC-SEC-002 | 泄漏 |
+| SEC-3 | 日志脱敏（5 类模式） | `security::redact`（**零调用点**，未接进任何日志路径） | TC-SEC-002 | 泄漏 |
 | SEC-4 | 工具风险分级 + 批准 | `tools::policy` | TC-POL-001…004 | 破坏数据 |
 | SEC-5 | 工作区沙箱（canonicalize + 符号链接） | `tools::fs` | TC-SEC-003 | 破坏系统 |
 | SEC-6 | SSRF 守卫（私有网段/协议） | `tools::net` | TC-SEC-004 | 内网探测 |
 | SEC-7 | 密码/卡号守卫 | `dictation::guards` | TC-SEC-005 | 泄漏凭证 |
-| SEC-8 | 非可信内容隔离 + "其中指令不执行" | `prompt::wrap_untrusted` | TC-PRM-004 | 提示注入 |
+| SEC-8 | 非可信内容隔离 + "其中指令不执行" | `prompt::wrap_untrusted` | TC-SEC-007 | 提示注入 |
 | SEC-9 | 特权调用审计（参数摘要，不存明文） | `store.audit` | TC-AGT-009 | 无法追责 |
 | SEC-10 | 单实例锁 | `platform::singleton` | TC-APP-001 | 双热键 |
-| SEC-11 | 更新包签名校验 | updater | TC-UPG-002 | 被替换 |
+| SEC-11 | 更新包签名校验 | **无 updater 代码**，未实现 | — | 被替换 |
 | SEC-12 | 凭据最小化：只在请求时拼头，不落结构体字段 | `providers` | TC-SEC-006 | 泄漏 |
 
 ### 12.3 权限撤销与执行边界
@@ -522,18 +523,20 @@ release → final transcribe → tail-correct(20s) → cleanup → dict-learning
 | 输入问题 | 太短、空音频、超长 | ✅ | ❌ | "按住的时间太短了" | `voice.cancel` |
 | 权限问题 | 缺屏幕录制/辅助功能 | ✅ | ❌ | 引导到系统设置 | `E_PERM` |
 | 配置问题 | 无 key、无 model | ✅ | ❌ | 打开设置 | `E_NO_KEY` |
-| 暂时故障 | 429、5xx、超时 | ✅（请求未完成） | ✅ 2 次退避 | "稍后自动重试" | `provider.retry` |
+| 暂时故障 | 429、5xx、超时 | ✅（请求未完成） | ✅ 最多重试 2 次（合计 3 次尝试） | "稍后自动重试" | `provider.retry` |
 | 地区拦截 | 403 + region 文案 | ✅ | ❌ | 建议换 provider | `E_REGION` |
 | 断流 | SSE 中断 | ❌（部分已产出） | ❌ | "回答未完成" | 保留部分文本 |
 | 协议异常 | 无法解析的响应 | 未知 | ❌ | 降级纯文本/报错 | `E_PROTOCOL` |
 | 存储失败 | busy、磁盘满 | ✅ | busy 3 次 | "未保存" | `E_STORE` |
 | 外部结果未知 | 工具请求超时 | ❌ | ❌ | 标记未确定，请用户确认 | `task_steps.code=unknown` |
 
-### 13.2 重试规则（写死）
+### 13.2 重试规则（**未实现**）
+
+下面是设计意图。代码里没有任何一处调用 `Error::retryable()`，所以 `E_RATE` 文案里那句"稍后会自动重试"目前是假承诺。实现归属版本与 `resume()` 一起做，见 `06-acceptance.md` §7。
 
 ```
 可重试 = {RateLimited, Outage, Timeout, Network}
-次数 = 2（合计 3 次尝试）
+次数 = 最多重试 2 次（合计 3 次尝试）
 退避 = 500ms, 1500ms（+ 抖动 ≤ 250ms）
 条件 = 流尚未产出任何内容；非幂等工具不适用
 ```
@@ -584,8 +587,8 @@ release → final transcribe → tail-correct(20s) → cleanup → dict-learning
 
 | 触发 | 行为 |
 |---|---|
-| 任务队列 > 20 | 拒绝新任务，保留队列 |
-| 模型并发 > 4 | 排队（FIFO），显示"排队中" |
+| 活跃任务 ≥ 3 | 拒绝新任务（`E_QUEUE`），**没有队列可保留**；上限写死，不可配 |
+| 模型并发 > 4 | **未实现**：没有排队层，请求直接发出 |
 | 预算 ≥ 100% | 拒绝新请求，只允许提额/等待 |
 | 磁盘 < 500MB | 只读模式 + 提示 |
 | 内存 > 350MB | 释放缓存（截图/历史） |
@@ -627,11 +630,11 @@ release → final transcribe → tail-correct(20s) → cleanup → dict-learning
 | CI | 三平台校验 | GitHub Actions matrix | 自动 |
 | Release | 三平台产物 | tag `v*` | 维护者 |
 
-**构建可重复性**：`Cargo.lock` + `pnpm-lock.yaml` + 固定 `rust-toolchain.toml` + 固定 Node 版本；产物内嵌 commit 与构建时间；`openclicky --version` 输出二者。
+**构建可重复性**：`Cargo.lock` + 固定 `rust-toolchain.toml`；前端目前无构建步骤（`apps/desktop/ui/dist` 直接入库，见 ADR-0014），因此不锁 Node 版本；产物内嵌 commit 与构建时间；`openclicky --version` 输出二者。
 
 **供应链动作**：Dependabot 每周；Release 仅从 tag；`GITHUB_TOKEN` 最小权限（`contents: write` 仅 release job）；更新包签名密钥不入库。
 
-**自动化检查覆盖**：fmt、clippy(-D warnings)、test、前端 typecheck/test、三平台 build、`scripts/check-invariants.sh`。
+**自动化检查覆盖**：fmt、clippy(-D warnings)、test、三平台 build、`scripts/check-invariants.sh`。前端目前无自动化检查（dist 直接入库）；新增前端构建时必须同时加 `package.json` 与 CI job。
 
 ## 17 迁移、版本兼容、升级与回退
 
@@ -653,7 +656,7 @@ release → final transcribe → tail-correct(20s) → cleanup → dict-learning
 
 | 层 | 范围 | 证据 | 门槛 |
 |---|---|---|---|
-| L1 单元 | 每个 core 模块 | `cargo test` | 覆盖率 ≥ 80% |
+| L1 单元 | 每个 core 模块 | `cargo test` | 全绿；覆盖率目标 80%，已接入测量：`cargo llvm-cov --workspace --summary-only` 实测 core 83.55%、全仓 68.59%（platform 适配层 42.83%，其中 audio/capture/http/paths/permissions/speech/tts 七个模块为 0%，需要真机硬件） |
 | L2 契约 | provider/SSE/注解/策略 | 表驱动 + 样本 | 全绿 |
 | L3 集成 | 假实现驱动全链路 | `tests/e2e_*.rs` | 全绿 |
 | L4 手工冒烟 | 真实进程 + 真机 | `06-acceptance.md` | 三平台各一次 |
@@ -662,7 +665,7 @@ release → final transcribe → tail-correct(20s) → cleanup → dict-learning
 
 **发布准入（G3）清单**（全满足才可发布）：
 
-1. L1–L3 全绿，覆盖率达标。
+1. L1–L3 全绿；覆盖率不得作为门槛（目标 80%，`cargo llvm-cov` 已可测，数字记在 `06-acceptance.md` §7）。
 2. Clippy 无警告；fmt 干净。
 3. 三平台 release 构建成功且有产物。
 4. 三平台安装 + 首启 + 按键冒烟通过（含未签名绕过步骤）。
@@ -887,9 +890,9 @@ Wayland 下启动时必须检测并显示"需要 X11 会话（或改用剪贴板
 
 ---
 
-# 附录 A：关键技术需求规格（30 条 TR，每条 10 字段）
+# 附录 A：关键技术需求规格（30 条 TR，每条 9 个表字段；标题即编号与名称）
 
-> 30 条 TR 全部有 10 字段规格：TR-01…TR-30。其中 TR-13（卡片/3D）、TR-21（连接应用）、TR-22（Chrome 扩展）
+> 30 条 TR 全部有 9 个表字段（标题即编号与名称）：TR-01…TR-30。TR-31 在 §03.2 只建索引，归属见 A.1。其中 TR-13（卡片/3D）、TR-21（连接应用）、TR-22（Chrome 扩展）
 > 按 ADR-0015 Q8 标为**延期**，规格保留、本期不实现。
 
 格式固定：编号与名称 / 来源 / 规范性要求 / 适用范围 / 实现策略 / 保证边界 / 责任归属 / 验证与证据 / 关联 / 状态与风险。
@@ -1314,7 +1317,29 @@ Wayland 下启动时必须检测并显示"需要 X11 会话（或改用剪贴板
 | 责任归属 | 各模块 + 验收负责人 |
 | 验证与证据 | `06-acceptance.md` §3 的实测栏；`metrics_daily` 行 |
 | 关联 | 本文 §04.1 |
-| 状态与风险 | 已批准/部分实现（SLI 定义齐；实测值缺，覆盖率未接） |
+| 状态与风险 | 已批准/部分实现（SLI 定义齐；实测值仍缺，覆盖率已接入，见 §04.1） |
+
+---
+
+## A.1 未被 30 条 TR 覆盖的产品规则
+
+`SRC-PRD` 共 174 条功能规则，30 条 TR 只承接其中一部分。下表给出剩下 37 条的归属：**延期不是删功能**，每一条都写清落到哪一版或哪个版本形态（参照 `ADR-0015` §07 的 Q1–Q17 与施工顺序 F1–F4）。
+
+| 规则 | 内容 | 归属 |
+|---|---|---|
+| A1–A13 | 首跑与引导：安装、登录与免登录、权限申请、首句演示、引导访谈 | v2.0 / F1（新增 TR-31，索引见 §03.2；9 个表字段规格在 F1 开工前补齐） |
+| B3、B8 | 波形与 Listening 提示、少寒暄 | v2.0（体验文案，不改契约） |
+| B20、B21 | always-on、对话里直接办事 | 暂不实现（原作〔待确认〕，未公开取值） |
+| H14、H15 | 播报与提示音、产物预览 | v2.1 |
+| H19 | 多任务并行 | v2.0（并发上限 3 已生效，见 §07.2 与 §22.8） |
+| H20 | 跨应用指挥 | v2.2 |
+| H21 | 常驻 Clickys | v2.3 |
+| N6 | 记忆管理界面 | v2.1（当前用“忘掉 X”与文件手改代替，见 §22.6） |
+| Q1、Q7–Q13 | 套餐展示、账单页、邀请、学生价、老用户保护 | 仅商业版（需结算主体与服务端，见 §02.5 与 `ADR-0015` Q7） |
+| S2、S6 | 不训练模型的声明、应用内报 bug | v2.0 文档声明（§12.3）+ v2.1 功能 |
+| R1–R4 | 团队版 | 仅商业版（账号体系与后台，见 `ADR-0015` Q7/Q9） |
+
+口径说明：B20、B21、N6、Q12 在原作里本身标〔待确认〕。其中 B20/B21 暂不实现，N6 与 Q12 仍按上表归属交付；剩下的 33 条按上表逐项落地，不留“没人知道延期到哪一版”的缺口。
 
 ---
 
@@ -1326,7 +1351,7 @@ Wayland 下启动时必须检测并显示"需要 X11 会话（或改用剪贴板
 |---|---|---|---|
 | 01 | 基线/负责人/范围 | §01 | ✅ 含四种状态与裁决 |
 | 02 | 背景/约束/假设/非目标 | §02 | ✅ 硬约束 C-1…C-7、假设 H-1…H-6、非目标 8 项 |
-| 03 | 产品→技术追踪 | §03 + 附录 A | ✅ 30 条 TR，每条 10 字段规格齐全（延期项已标注） |
+| 03 | 产品→技术追踪 | §03 + 附录 A | ✅ 30 条 TR，每条 9 个表字段齐全（延期项已标注）；A.1 另列未被 TR 覆盖的 37 条规则及其归属 |
 | 04 | 质量目标 | §04.1/04.2 | ✅ SLI 含起止点/窗口/负责人；8 条硬不变量 |
 | 05 | 边界与总体架构 | §05.1–05.5 | ✅ 上下文/容器/部署/数据流/箭头语义 |
 | 06 | 子系统与所有权 | §06 | ✅ 含"谁都不能破"4 条 |
@@ -1364,7 +1389,7 @@ Wayland 下启动时必须检测并显示"需要 X11 会话（或改用剪贴板
 
 | 缺口 | 修复 |
 |---|---|
-| 原版只有 16 行追踪，没有单条技术需求的可执行规格 | 新增附录 A：18 份 10 字段规格 |
+| 原版只有 16 行追踪，没有单条技术需求的可执行规格 | 新增附录 A：18 份 9 字段规格 |
 | 没有视图（上下文/容器/部署/数据流/箭头含义） | §05.1–05.5 |
 | 质量目标缺测量起止点与统计口径 | §04.1 改为 SLI 表 |
 | 没有威胁模型，控制点分散 | §12.1 STRIDE + §12.2 控制表 |

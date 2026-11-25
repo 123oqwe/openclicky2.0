@@ -121,7 +121,7 @@ chmod +x OpenClicky-2.0.0-x86_64.AppImage && ./OpenClicky-2.0.0-x86_64.AppImage
 # deb
 sudo dpkg -i openclicky_2.0.0_amd64.deb || sudo apt-get -f install
 ```
-依赖（deb 会声明）：`libwebkit2gtk-4.1-0`、`libgtk-3-0`、`libasound2`、`libxkbcommon0`（enigo 注入用）、`x11-utils`；构建时需要对应的 `-dev` 包（见 CI）。
+依赖（deb 会声明）：`libwebkit2gtk-4.1-0`、`libgtk-3-0`、`libasound2`、`libxkbcommon0`（enigo 注入用）、`x11-utils`；构建时需要对应的 `-dev` 包，唯一来源是 `scripts/linux-deps.sh`（CI 的 `ci.yml` 与 `release.yml` 三个 job 都调它，`check-invariants.sh` 会拦住任何在 workflow 里内联 apt 列表的写法）。
 `openclicky doctor` 应显示 `displays: N` 且 `screen recording: ok`。
 
 ### 5.2 X11 与 Wayland
@@ -165,7 +165,7 @@ DESK
 
 | # | 步骤 | 通过标准 |
 |---|---|---|
-| 1 | 安装产物 | 能在目标系统启动并打印版本+commit |
+| 1 | 安装产物 | 能在目标系统启动并打印版本+commit（`openclicky --version` → `2.0.0 (commit <sha>, built at unix <epoch>)`；`doctor` 首行也带 commit）。**已自动化**：`release.yml` 的 `smoke` job 在三平台装包、启动、要求出现窗口，见 `06-acceptance.md` §3 第 4 条 |
 | 2 | `doctor` | 无 `E_*` 错误；权限与环境如实报告 |
 | 3 | `selftest --out /tmp/shot.png` | 每块屏都有尺寸与字节数；图片能打开 |
 | 4 | 配 key 后 `doctor --online` | 能列出模型；配置的模型在列表里 |
@@ -185,7 +185,7 @@ cargo run -p openclicky-desktop        # 启动壳（main 窗口 + overlay 覆�
 ```
 
 仍需补齐（不改变已实现的行为）：
-- 三平台安装器构建命令（`cargo tauri build`）与产物路径；
+- 三平台安装器构建命令（`cargo tauri build`）与产物路径；**已验证**：run 45528604668 产出 dmg/app/NSIS exe/AppImage/deb，路径在 `target/release/bundle/<format>/`，由 `release.yml` 的 `desktop` job 收集。缺的只是合并后打 `v*` tag 让 `publish` 真正挂到 Release 页；
 - 更新签名密钥（`TAURI_SIGNING_PRIVATE_KEY`）与公钥入库位置；
 - 更新检查失败/回滚的用户可见行为；
 - `Settings → General → Install & Relaunch` 的实际行为。

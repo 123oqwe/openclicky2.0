@@ -3,7 +3,7 @@
 | 项 | 值 |
 |---|---|
 | 编号 | OC2-TDS |
-| 版本 | 1.3（2026-11-23，追踪矩阵改为脚本生成，只认可真实存在的测试） |
+| 版本 | 1.4（2026-11-23，补首跑/交办/召回用例，标明尚未自动化） |
 | 状态 | 生效 |
 | 术语 | 本文自称 **TDS**，避免与"测试驱动开发（TDD）"混淆。TDD 是本项目的**开发方法**，TDS 是**这份规格** |
 | 依据 | `01-tech-prd.md` §18、`02-sdd.md`、`adr/ADR-0012` |
@@ -53,7 +53,7 @@
 | TC-E2E-ASK-002 | TTS 失败回退剪贴板 | TC-E2E-ASK-002 | **已实现** | `crates/core/tests/e2e_ask.rs::silent_tts_falls_back_to_text_and_clipboard` | — |
 | TC-E2E-ASK-003 | 缺模型报 E_MODEL | TC-E2E-ASK-003 | **已实现** | `crates/core/tests/e2e_ask.rs::missing_model_is_a_clear_error` | — |
 | TC-E2E-ASK-004 | 消息与用量同事务落库 | TC-E2E-ASK-004 | **已实现** | `crates/core/tests/e2e_ask.rs::messages_and_usage_are_persisted_together` | — |
-| TC-E2E-ASK-005 | 打字提问不采集/不录音 | TC-E2E-ASK-005 | **已实现** | `crates/core/tests/e2e_ask.rs::typed_question_skips_audio_and_capture` | — |
+| TC-E2E-ASK-005 | 打字提问不采集/不录音 | TC-E2E-ASK-005 | **已实现** | `crates/core/tests/e2e_ask.rs::typed_question_captures_once_and_can_point` | — |
 | TC-E2E-ASK-006 | 199ms 短按拒绝（不采集不计费） | TC-E2E-ASK-006 | **已实现** | `crates/core/tests/e2e_ask.rs::short_press_is_rejected_and_not_charged` | — |
 | TC-ANNO-001 | POINT 解析与剥离标签 | TC-ANNO-001…006 | **已实现** | `crates/core/tests/e2e_ask.rs::asks_answers_points_and_charges_once` | 13 条细项见 spec-only |
 | TC-ANNO-002 | 越界裁剪/坏标签丢弃/多形状 | TC-ANNO-002 | **已实现** | `crates/core/src/annotations.rs::parses_every_draw_shape` | 另有 9 条同模块单测 |
@@ -74,7 +74,7 @@
 | TC-USE-003 | 80% 提醒 / 100% 阻断 | TC-USE-003 | **已实现** | `crates/core/src/usage.rs::budget_blocks_at_limit_and_warns_at_80_percent` | — |
 | TC-USE-004 | 每日重置 | TC-USE-004 | **已实现** | `crates/core/src/usage.rs::daily_reset_clears_usage` | — |
 | TC-USE-005 | 当日提额解除阻断 | TC-USE-005 | **已实现** | `crates/core/src/usage.rs::temporary_grant_unblocks_today` | 月度提额待 F3 |
-| TC-USE-006 | 长任务只计一次 | TC-USE-006 | **已实现** | `crates/core/src/usage.rs::agent_steps_after_twenty_minutes_are_waived` | runner 在 20 分钟后豁免后续回合 |
+| TC-USE-006 | 长任务只计一次 | TC-USE-006 | **已实现** | `crates/core/src/usage.rs::agent_steps_are_always_metered_even_after_twenty_minutes` | 20 分钟后步数仍如实计量 |
 | TC-AGT-001 | 写文件后带证据完成 | TC-AGT-001 | **已实现** | `crates/core/tests/e2e_agent.rs::writes_a_file_then_finishes_with_evidence` | — |
 | TC-AGT-002 | 拒绝后不执行且 30 分钟内不问 | TC-AGT-002 | **已实现** | `crates/core/src/tools/policy.rs::destructive_asks_then_respects_not_now` | 拒绝路径见 e2e_agent |
 | TC-AGT-003 | 无证据完成标 unverified | TC-AGT-003 | **已实现** | `crates/core/tests/e2e_agent.rs::claim_without_artifact_is_unverified` | — |
@@ -139,7 +139,7 @@
 | 集成（假实现） | ~35% | `crates/core/tests/` | 实施 Agent |
 | 手工冒烟 | ~5% | `06-acceptance.md` | 人类维护者 |
 
-门槛：`core` 行覆盖 ≥ 80%；P0 用例 100% 通过。
+门槛：P0 用例 100% 通过；`core` 行覆盖 ≥ 80% 是**目标值**，尚未接入测量（未接 `cargo llvm-cov`），接入前不得作为发布门槛，执行报告记未测。
 
 ---
 
@@ -235,6 +235,18 @@
 | TC-SEC-005 注入守卫 | 终端单行；密码类在 tick 与 finish 都不注入 |
 | TC-SEC-006 删除报告 | 八步逐项报告，失败必须出现 |
 
+### 12.1 首跑与交办（F1）
+
+| 用例 | 断言 | 状态 |
+|---|---|---|
+| TC-ONB-001 保存 key 与模型 | `save_provider` 后 `app_state.ready=true`；`config.toml` 含 `chat_model`；钥匙串可读回 | spec-only（无桌面自动化） |
+| TC-ONB-002 拉模型失败要说人话 | 错 key → `E_AUTH` 文案，不白屏 | spec-only |
+| TC-TASK-001 桌面可交办 | `create_task` 返回 id，任务出现在列表并进入 running | spec-only |
+| TC-TASK-002 批准后继续 | waiting_approval 时 `approve_task` 触发执行 | spec-only |
+| TC-WIN-001 关窗可召回 | 关闭主窗后进程仍在，再次激活可显示 | spec-only |
+
+**这五条尚无自动化测试**，只有手工冒烟；G2-WP6 因此不计入通过。
+
 ### 13 性能、容量、稳定性与成本
 
 **负载模型**（写清才能比较）：单用户、串行会话、4K×2 显示器、12s 语音、假 provider 固定延迟 300ms。
@@ -285,7 +297,7 @@
 | 阶段 | 条件 |
 |---|---|
 | 进入 G1（PR 评审） | 测试已写、CI 已跑 |
-| G1 通过 | P0 全绿 + 无新增警告 + 覆盖不降 + `scripts/tds-evidence.py` 通过（没有引用不存在的测试） |
+| G1 通过 | P0 全绿 + 无新增警告 + 已测量的覆盖率不降（未接入时记未测）+ `scripts/tds-evidence.py` 通过（没有引用不存在的测试） |
 | 进入 G2 | 工作包 PR 全合并 + 检查点通过 |
 | G2 通过 | 该包内**全部 TC 状态为「已实现」且执行通过** + 手工冒烟记录 + 证据绑定 commit；任何 `部分`/`spec-only` 都计未覆盖，不得判通过 |
 | 进入 G3 | 全部 G2 通过 |

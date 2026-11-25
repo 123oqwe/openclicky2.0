@@ -1,0 +1,39 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    html, body { margin:0; height:100%; background:transparent; overflow:hidden; }
+    canvas { position:fixed; inset:0; width:100%; height:100%; pointer-events:none; }
+    #rec {
+      position:fixed; left:50%; top:14px; transform:translateX(-50%);
+      display:none; align-items:center; gap:8px;
+      padding:6px 12px; border-radius:999px;
+      background:rgba(20,20,20,.85); color:#fecaca;
+      font:600 12px -apple-system, system-ui, sans-serif;
+      box-shadow:0 2px 10px rgba(0,0,0,.35);
+    }
+    #rec.on { display:flex; }
+    #cap {
+      position:fixed; left:50%; bottom:56px; transform:translateX(-50%);
+      max-width:min(720px, 88vw); display:none;
+      padding:10px 16px; border-radius:12px;
+      background:rgba(20,20,20,.86); color:#eee; text-align:center;
+      font:500 15px/1.5 -apple-system, system-ui, sans-serif;
+      box-shadow:0 2px 14px rgba(0,0,0,.4);
+    }
+    #cap.on { display:block; }
+    #dot {
+      width:10px; height:10px; border-radius:50%; background:#ef4444;
+      animation:pulse 1s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.35;transform:scale(.8)} }
+  </style>
+</head>
+<body>
+  <div id="rec"><span id="dot"></span><span>正在听…</span></div>
+  <div id="cap"></div>
+  <canvas id="c"></canvas>
+  <script type="module" src="overlay.js"></script>
+</body>
+</html>

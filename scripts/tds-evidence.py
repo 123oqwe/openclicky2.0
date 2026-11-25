@@ -7,9 +7,14 @@ for the audit finding "the matrix cites seven test files that do not exist".
 """
 import os, subprocess, sys, pathlib, re
 
+# A Windows console defaults to cp1252; printing Chinese would raise before any
+# check ran. The scripts are the portable part, so they force their own encoding.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 # Where the tests live. The docs branch does not carry code, so we read a branch.
-CANDIDATES = [os.environ.get("TDS_SOURCE_BRANCH", ""), "feat/impl", "origin/feat/impl", "HEAD"]
+CANDIDATES = [os.environ.get("TDS_SOURCE_BRANCH", ""), "HEAD"]
 
 
 def source_branch():
@@ -17,7 +22,8 @@ def source_branch():
         if not c:
             continue
         r = subprocess.run(["git", "rev-parse", "--verify", "--quiet", c],
-                           cwd=ROOT, capture_output=True, text=True)
+                           cwd=ROOT, capture_output=True,
+                           encoding="utf-8", errors="replace")
         if r.returncode == 0:
             return c
     return None
@@ -51,7 +57,7 @@ ROWS = [
  ("TC-E2E-ASK-004", "消息与用量同事务落库", "TC-E2E-ASK-004", "已实现",
   "crates/core/tests/e2e_ask.rs::messages_and_usage_are_persisted_together", ""),
  ("TC-E2E-ASK-005", "打字提问不采集/不录音", "TC-E2E-ASK-005", "已实现",
-  "crates/core/tests/e2e_ask.rs::typed_question_skips_audio_and_capture", ""),
+  "crates/core/tests/e2e_ask.rs::typed_question_captures_once_and_can_point", ""),
  ("TC-E2E-ASK-006", "199ms 短按拒绝（不采集不计费）", "TC-E2E-ASK-006", "已实现",
   "crates/core/tests/e2e_ask.rs::short_press_is_rejected_and_not_charged", ""),
  ("TC-ANNO-001", "POINT 解析与剥离标签", "TC-ANNO-001…006", "已实现",
@@ -93,7 +99,7 @@ ROWS = [
  ("TC-USE-005", "当日提额解除阻断", "TC-USE-005", "已实现",
   "crates/core/src/usage.rs::temporary_grant_unblocks_today", "月度提额待 F3"),
  ("TC-USE-006", "长任务只计一次", "TC-USE-006", "已实现",
-  "crates/core/src/usage.rs::agent_steps_after_twenty_minutes_are_waived", "runner 在 20 分钟后豁免后续回合"),
+  "crates/core/src/usage.rs::agent_steps_are_always_metered_even_after_twenty_minutes", "20 分钟后步数仍如实计量"),
  ("TC-AGT-001", "写文件后带证据完成", "TC-AGT-001", "已实现",
   "crates/core/tests/e2e_agent.rs::writes_a_file_then_finishes_with_evidence", ""),
  ("TC-AGT-002", "拒绝后不执行且 30 分钟内不问", "TC-AGT-002", "已实现",
@@ -173,12 +179,14 @@ ROWS = [
 def tests_on_branch(branch):
     names = {}
     out = subprocess.run(["git", "ls-tree", "-r", "--name-only", branch, "crates"],
-                         cwd=ROOT, capture_output=True, text=True).stdout.split()
+                         cwd=ROOT, capture_output=True,
+                         encoding="utf-8", errors="replace").stdout.split()
     for path in out:
         if not path.endswith(".rs"):
             continue
         body = subprocess.run(["git", "show", f"{branch}:{path}"],
-                              cwd=ROOT, capture_output=True, text=True).stdout
+                              cwd=ROOT, capture_output=True,
+                           encoding="utf-8", errors="replace").stdout
         for m in re.finditer(r'#\[test\]\s*(?:\n\s*)*fn\s+([a-z0-9_]+)', body):
             names.setdefault(path, set()).add(m.group(1))
     return names
@@ -186,8 +194,8 @@ def tests_on_branch(branch):
 def main():
     branch = source_branch()
     if branch is None:
-        print("tds-evidence: no source branch available (tried feat/impl, origin/feat/impl, HEAD)")
-        print("CI must fetch the implementation branch before running this check.")
+        print("tds-evidence: no source tree available")
+        print("The matrix is generated from the tests in the tree under test.")
         return 2
     have = tests_on_branch(branch)
     print(f"tds-evidence: reading tests from {branch}")

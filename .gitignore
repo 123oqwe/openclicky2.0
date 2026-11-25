@@ -1,14 +1,19 @@
 /target
 node_modules/
 dist/
+!apps/desktop/ui/dist/
+!apps/desktop/ui/dist/**
 .DS_Store
 *.log
 .env
 .env.*
 !/env.example
-apps/desktop/ui/dist/
 coverage/
 *.profraw
 /tmp
 .vscode/
 .idea/
+
+# Python bytecode from running the doc scripts
+__pycache__/
+*.pyc
