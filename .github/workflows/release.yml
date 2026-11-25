@@ -81,13 +81,22 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          find target/release/bundle -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.msi' -o -name '*.AppImage' -o -name '*.deb' \) -exec cp {} dist/ \; 2>/dev/null || true
+          copied=0
+          for pat in dmg exe msi AppImage deb; do
+            while IFS= read -r f; do
+              cp "$f" dist/ && copied=$((copied+1))
+            done < <(find target/release/bundle -type f -name "*.$pat")
+          done
           if [ -d "target/release/bundle/macos/OpenClicky.app" ]; then
             (cd target/release/bundle/macos && zip -qr "$GITHUB_WORKSPACE/dist/OpenClicky.app.zip" OpenClicky.app)
           fi
           git rev-parse HEAD > dist/COMMIT
           git describe --tags --always >> dist/COMMIT
           ls -la dist
+          if [ "$copied" -eq 0 ]; then
+            echo "::error::no installer was produced for ${{ matrix.os }}; a green job with an empty artifact is worse than a red one"
+            exit 1
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}

@@ -185,7 +185,7 @@ cargo run -p openclicky-desktop        # 启动壳（main 窗口 + overlay 覆�
 ```
 
 仍需补齐（不改变已实现的行为）：
-- 三平台安装器构建命令（`cargo tauri build`）与产物路径；
+- 三平台安装器构建命令（`cargo tauri build`）与产物路径；**已验证**：run 45528604668 产出 dmg/app/NSIS exe/AppImage/deb，路径在 `target/release/bundle/<format>/`，由 `release.yml` 的 `desktop` job 收集。缺的只是合并后打 `v*` tag 让 `publish` 真正挂到 Release 页；
 - 更新签名密钥（`TAURI_SIGNING_PRIVATE_KEY`）与公钥入库位置；
 - 更新检查失败/回滚的用户可见行为；
 - `Settings → General → Install & Relaunch` 的实际行为。
