@@ -29,7 +29,9 @@ def git(*args):
     Returning "" on failure made a shallow clone look like an empty diff, and the
     rule passed while checking nothing. A rule that cannot run is red.
     """
-    out = subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True)
+    out = subprocess.run(
+        ["git", *args], cwd=ROOT, capture_output=True, text=True, encoding="utf-8"
+    )
     return out.stdout if out.returncode == 0 else None
 
 
