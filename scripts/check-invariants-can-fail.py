@@ -69,14 +69,16 @@ def main(argv):
             continue
 
         backup = pathlib.Path(tempfile.mkstemp(suffix=".bak")[1])
-        shutil.copy2(target, backup)
+        shutil.copyfile(target, backup)
         try:
             target.write_text(original.replace(old, new, 1), encoding="utf-8")
             mutated = run(test)
             broke_build = "error[" in mutated.stdout + mutated.stderr
             went_red = mutated.returncode != 0 and not broke_build
         finally:
-            shutil.copy2(backup, target)
+            # copyfile, not copy2: preserving the old mtime makes cargo see a
+            # source older than the mutated build and reuse the stale artifact.
+            shutil.copyfile(backup, target)
             backup.unlink()
 
         if not went_red:
