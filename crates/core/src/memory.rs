@@ -69,6 +69,11 @@ impl Memory {
 
     pub fn forget(&self, needle: &str) -> Result<usize> {
         let needle = needle.trim().to_lowercase();
+        // An empty needle matches every line, so a blank argument would erase
+        // everything the user asked to keep.
+        if needle.is_empty() {
+            return Err(Error::BadRequest("要忘掉什么？给一个关键词。".into()));
+        }
         let mut removed = 0;
         {
             let mut p = self.profile.lock().unwrap();
@@ -224,5 +229,17 @@ mod tests {
         assert_eq!(n, 2);
         assert!(!m.profile_text().contains("播客"));
         assert!(!m.projects_text().contains("播客"));
+    }
+
+    #[test]
+    fn a_blank_needle_refuses_instead_of_erasing_everything() {
+        let (_d, m) = mem();
+        m.add_preference("喜欢用表格").unwrap();
+        m.add_project_fact("播客第三期在剪").unwrap();
+
+        assert!(m.forget("").is_err());
+        assert!(m.forget("   ").is_err());
+        assert!(m.profile_text().contains("喜欢用表格"));
+        assert!(m.projects_text().contains("播客第三期在剪"));
     }
 }

@@ -32,11 +32,18 @@ impl ToolOutcome {
     pub fn model_text(&self) -> String {
         const LIMIT: usize = 7000;
         let raw = match self {
-            Self::Ok { data, summary } => match data.get("text").and_then(|v| v.as_str()) {
-                Some(text) => text.to_string(),
-                None if data.is_null() => summary.clone(),
-                None => data.to_string(),
-            },
+            // A payload that carries more than the text (a url, a path) must not
+            // be reduced to the text alone, or the model cannot say what it read.
+            Self::Ok { data, summary } => {
+                let single_text = data
+                    .as_object()
+                    .is_some_and(|m| m.len() == 1 && m.contains_key("text"));
+                match (single_text, data.get("text").and_then(|v| v.as_str())) {
+                    (true, Some(text)) => text.to_string(),
+                    (_, None) if data.is_null() => summary.clone(),
+                    _ => data.to_string(),
+                }
+            }
             Self::Denied { reason } => reason.clone(),
             Self::Failed { message, .. } => message.clone(),
         };
@@ -456,6 +463,17 @@ mod tests {
             data: serde_json::json!({ "text": "the actual file body" }),
         };
         assert_eq!(out.model_text(), "the actual file body");
+    }
+
+    #[test]
+    fn a_payload_with_a_url_keeps_the_url() {
+        let out = ToolOutcome::Ok {
+            summary: "120 chars from https://example.test/page".into(),
+            data: serde_json::json!({ "url": "https://example.test/page", "text": "hello" }),
+        };
+        let text = out.model_text();
+        assert!(text.contains("https://example.test/page"), "{text}");
+        assert!(text.contains("hello"), "{text}");
     }
 
     #[test]
