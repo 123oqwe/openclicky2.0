@@ -232,8 +232,22 @@ jobs:
             echo "::error::no artifacts to checksum"
             exit 1
           }
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: artifacts/*
-          generate_release_notes: true
-          body_path: CHANGELOG.md
+      - name: Publish with gh
+        # softprops/action-gh-release races with its own asset metadata updates:
+        # uploading in parallel produced "error updating release asset metadata
+        # ... HttpError: Not Found" and then "Too many retries", leaving a draft
+        # with 8 of 15 assets. It also took both generate_release_notes and
+        # body_path, which write the same field. gh is one deterministic path and
+        # one source for the notes.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release delete "$tag" --yes --cleanup-tag=false
+          fi
+          gh release create "$tag" --draft --title "$tag" --notes-file CHANGELOG.md artifacts/*
+          gh release edit "$tag" --notes-file CHANGELOG.md --draft=false
+          gh release view "$tag" --json assets -q '"assets: \(.assets | length)"'
