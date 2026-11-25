@@ -222,14 +222,23 @@ mod tests {
     #[test]
     fn the_policy_and_the_writer_agree_about_what_is_outside() {
         let dir = tempfile::tempdir().unwrap();
-        let outside = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("sub")).unwrap();
+        // A link has to outlive the loop: a dangling one resolves through its
+        // parent and the two predicates would agree for the wrong reason.
+        #[cfg(unix)]
+        let outside = tempfile::tempdir().unwrap();
         #[cfg(unix)]
         std::os::unix::fs::symlink(outside.path(), dir.path().join("link")).unwrap();
 
-        let mut cases = vec!["a.txt", "sub/b.txt", "sub/new/c.txt", "../x", "/abs/x", ""];
         #[cfg(unix)]
-        cases.push("link/secret.txt");
+        const EXTRA: &[&str] = &["link/secret.txt"];
+        #[cfg(not(unix))]
+        const EXTRA: &[&str] = &[];
+
+        let cases: Vec<&str> = ["a.txt", "sub/b.txt", "sub/new/c.txt", "../x", "/abs/x", ""]
+            .into_iter()
+            .chain(EXTRA.iter().copied())
+            .collect();
 
         for rel in cases {
             let resolved = resolve_in_workspace(dir.path(), rel);

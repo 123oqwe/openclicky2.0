@@ -227,6 +227,8 @@ PR 模板（`.github/PULL_REQUEST_TEMPLATE.md`）必含：
 
 前端目前无自动化检查（`apps/desktop/ui/dist` 直接入库，见 ADR-0014）；新增前端构建时必须同时加 `package.json` 与 CI job。
 
+**跨平台测试里不要用 `#[cfg(unix)]` 去守卫 `mut` 或只在该平台使用的绑定**：`-D warnings` 会在平台关掉那半边时把 `unused_mut` / `unused_variables` 变成编译错误，本地 macOS 全绿、CI 的 Windows 红。用两平台都存在的形状（例如 `#[cfg(unix)] const EXTRA: &[&str]` 再 `chain`），不要用条件 `push`。同理，任何写进文档源的脚本都别拿 `str(path)` 做目录判断，Windows 用反斜杠，改用 `Path.parts`。
+
 必须防止 **"两个 PR 各自绿、一起合就红"**：合并前在最新 main 上 rebase；启用 merge queue 时必须配置 `merge_group` 触发器。
 
 `main` 保护：必需检查（上面 5 项）、线性历史、禁强制推送、禁直推。
