@@ -65,6 +65,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # check-new-tests.py compares against docs/.surface-baseline, which a
+          # depth-1 clone cannot resolve. This repo is small.
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy

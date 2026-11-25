@@ -24,16 +24,26 @@ MATRIX = ROOT / "docs" / "04-test-design.md"
 
 
 def git(*args):
+    """stdout, or None when the command failed.
+
+    Returning "" on failure made a shallow clone look like an empty diff, and the
+    rule passed while checking nothing. A rule that cannot run is red.
+    """
     out = subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True)
-    return out.stdout if out.returncode == 0 else ""
+    return out.stdout if out.returncode == 0 else None
 
 
 def head():
-    return git("rev-parse", "HEAD").strip()
+    return (git("rev-parse", "HEAD") or "").strip()
 
 
 def new_public_fns(base):
     diff = git("diff", f"{base}...HEAD", "-U0", "--", "crates", "apps")
+    if diff is None:
+        raise SystemExit(
+            f"cannot compare against {base[:7]}: this clone has no merge base "
+            "(shallow?). Fetch full history, then re-run."
+        )
     added = {m.group(1) for m in re.finditer(r"^\+\s*pub fn (\w+)", diff, re.M)}
     removed = {m.group(1) for m in re.finditer(r"^-\s*pub fn (\w+)", diff, re.M)}
     return sorted(added - removed)
@@ -51,7 +61,7 @@ def main(argv):
         return 0
 
     base = BASELINE.read_text(encoding="utf-8").strip()
-    if not git("rev-parse", "--verify", "--quiet", base):
+    if git("rev-parse", "--verify", "--quiet", base) is None:
         print(f"surface baseline {base[:7]} is not in this clone; run --rebase")
         return 1
 
