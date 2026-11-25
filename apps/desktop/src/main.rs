@@ -426,7 +426,7 @@ fn permission_snapshot() -> serde_json::Value {
     serde_json::json!({
         "screen_recording": probe.screen_recording,
         "accessibility": probe.accessibility,
-        "microphone": probe.microphone,
+        "microphone": probe.microphone.as_str(),
         "guidance": platform_permissions::missing_guidance(probe),
     })
 }
@@ -443,7 +443,18 @@ fn request_permission(kind: String) -> serde_json::Value {
             platform_permissions::request_screen_recording();
         }
         "accessibility" => open_privacy_pane("Privacy_Accessibility"),
-        "microphone" => open_privacy_pane("Privacy_Microphone"),
+        // A refusal cannot be undone by asking again; only the settings row
+        // can. A first run has never been asked, so the stream is what raises
+        // the system prompt.
+        "microphone" => match platform_permissions::probe().microphone {
+            openclicky_core::ports::MicrophoneAccess::Denied => {
+                open_privacy_pane("Privacy_Microphone")
+            }
+            openclicky_core::ports::MicrophoneAccess::NotDetermined => {
+                platform_permissions::request_microphone(&CpalAudio::new());
+            }
+            openclicky_core::ports::MicrophoneAccess::Granted => {}
+        },
         _ => {}
     }
     permission_snapshot()
