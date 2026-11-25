@@ -43,7 +43,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.rstrip("/").endswith("/models"):
             record("models", self.path, {})
-            self._send(200, {"data": [{"id": m} for m in ARGS.models]})
+            ids = [m.strip() for m in ARGS.models.split(",") if m.strip()]
+            self._send(200, {"data": [{"id": m} for m in ids]})
             return
         self._send(404, {"error": {"message": "not found"}})
 
@@ -104,7 +105,11 @@ def main():
     ap.add_argument("--log")
     ap.add_argument("--reply", default="这是一条 mock 回答。")
     ap.add_argument("--transcript", default="mock transcript")
-    ap.add_argument("--models", default="mock-chat,mock-fast,mock-deep")
+    ap.add_argument(
+        "--models",
+        default="mock-chat,mock-fast,mock-deep",
+        help="comma separated model ids",
+    )
     ARGS = ap.parse_args()
 
     server = ThreadingHTTPServer(("127.0.0.1", ARGS.port), Handler)
