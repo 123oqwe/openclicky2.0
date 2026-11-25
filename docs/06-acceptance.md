@@ -5,7 +5,7 @@
 | 编号 | OC2-ACCEPT |
 | 版本 | 2.0（2026-11-23） |
 | 权威性 | 功能是否验收，以本文件绑定到具体 commit 的结论为准（`00-baseline.md` §4） |
-| 代码基线 | `feat/f1-onboarding` @ `9c08677`（未合入 main）；此提交之后只允许文档改动，代码再动必须重跑本文件的证据 |
+| 代码基线 | `feat/f1-onboarding` @ `16e9579`（未合入 main）；此提交之后只允许文档改动，代码再动必须重跑本文件的证据 |
 | 范围定案 | `docs/adr/ADR-0015-delivery-decisions.md`（Q1–Q12） |
 | 规则 | 结论绑定 commit；证据可复现；未测项必须列出；PASS 不得覆盖 P0 |
 
@@ -15,7 +15,7 @@
 |---|---|---|---|---|
 | G0 | 任务准入 | 通过 | — | 任务卡字段见 playbook §04 |
 | G1 | 单 PR | **通过（有条件）** | 复核报告 + 修复 PR | 198 条复核发现：11 个 P0 均已修复并有测试；剩余 P1/P2 见 §5 |
-| G2 | 工作包 | **部分通过** | `9c08677` | WP1–WP5 PASS；WP6 有条件（仅 macOS 产物实测） |
+| G2 | 工作包 | **部分通过** | `16e9579` | WP1–WP5 PASS；WP6 有条件（仅 macOS 产物实测） |
 | G3 | 发布准入 | **阻塞** | — | 九条中 6 条满足，缺三平台产物/安装冒烟/迁移演练 |
 | G4 | 开放后观察 | 未开始 | — | 无发布 |
 
@@ -30,35 +30,35 @@
 
 ### G2-WP2 问答（说 + 指）
 - 范围：TR-01/02/05/06/12；TC-E2E-ASK-001…006、TC-ANNO-001…013、TC-HK-*
-- 版本基线：`9c08677`
+- 版本基线：`16e9579`
 - 执行结果：`cargo test -p openclicky-core` 全绿；每个问题只采集 1 次、标签剥离、坐标按图片比例、TTS 失败回落剪贴板
 - 结论：**有条件通过**。13 条 `TC-ANNO-*` 细项仍为 spec-only，按 `04-test-design.md` 的规则不得计为通过
 - 未测：真实供应商在线路径（无 key）；平台真机 TCC 弹窗（本机 `doctor` 已显示 ok）
 
 ### G2-WP3 任务（办）
 - 范围：TR-17/18/19；TC-AGT-001…009
-- 版本基线：`9c08677`
+- 版本基线：`16e9579`
 - 执行结果：状态机全边、一次性批准、拒绝后 30 分钟静默、循环停止、恢复、等待 24 小时转暂停、并发上限 3、计费（任务收一次，步数如实计）
 - 结论：**通过**
 - 未测：真实长任务（>20 分钟）计时；外部副作用"结果未知"的端到端演练
 
 ### G2-WP4 听写（写）
 - 范围：TR-15；TC-DICT-001…010
-- 版本基线：`9c08677`
+- 版本基线：`16e9579`
 - 执行结果：增量后缀、终端单行、密码守卫（tick + finish）、词典学习
 - 结论：**通过**
 - 未测：真实麦克风与蓝牙设备切换
 
 ### G2-WP5 自动化（定时 + 建议 + 记忆）
 - 范围：TR-24/25/26；TC-RTN-*、TC-SUG-*、TC-MEM-*
-- 版本基线：`9c08677`
+- 版本基线：`16e9579`
 - 执行结果：时间表解析/下次触发/条件等待/三连失败暂停；打扰预算；记忆压缩与遗忘
 - 结论：**通过**
 - 未测：真实睡眠唤醒补跑（需要合盖测试）
 
 ### G2-WP6 交付（三平台）
 - 范围：ADR-0011、`05-deployment.md`
-- 版本基线：`9c08677`
+- 版本基线：`16e9579`
 - 执行结果：**有条件**
   - macOS：`tauri build --bundles app` 实测产出 `OpenClicky.app`（6.95 MiB），运行 8 秒无 panic
   - Windows / Linux：CI job 已写好（nsis / appimage+deb），**尚未运行**
@@ -71,10 +71,10 @@
 |---|---|---|---|
 | 1 | L1–L3 全绿 + 覆盖率 | ✅ | 189 tests 全绿；`cargo llvm-cov --workspace --summary-only` 实测行覆盖 core 83.55%、全仓 68.59%、platform 适配层 42.83%。目标 80% 按业务逻辑算，platform 的 0% 全在需要硬件的模块（audio/capture/http/paths/permissions/speech/tts） |
 | 2 | clippy 无警告、fmt 干净 | ✅ | CI rust matrix / 本地同命令 |
-| 3 | 三平台 release 构建成功 | ⚠️ 仅 macOS | 本机 app bundle |
+| 3 | 三平台 release 构建成功 | ⚠️ 编译与测试三平台通过，发布包未产出 | `cargo test --workspace` + `clippy --all-targets` 在 ubuntu/macos/windows 三平台全绿（run 45525444879）；`release.yml` 至今未触发过，`.dmg/.msi/AppImage` 仍不存在 |
 | 4 | 三平台安装 + 首启冒烟 | ❌ | 无安装器产物 |
 | 5 | INV-1…8 有用例且通过 | ✅ | INV-1/3/4/7 绑定用例；INV-2 扫库验证 key 未落盘；INV-5 批准后写入 + 审计行断言、策略与写入器对“是否越界”的判定有对拍用例；INV-6 跨两步断言任务费只收一次；INV-8 恢复不重放 |
-| 6 | G2 结论绑定同一 commit | ✅ | 本文件与 §2 全部工作包绑定 `9c08677`；WP6 的“有条件”是结论本身，不是过期 |
+| 6 | G2 结论绑定同一 commit | ✅ | 本文件与 §2 全部工作包绑定 `16e9579`；WP6 的“有条件”是结论本身，不是过期 |
 | 7 | 无 P0/P1 未测项 | ⚠️ | 见 §5 |
 | 8 | 迁移与恢复演练 | ✅ | `migration_drill` 三条：v1 带数据迁到 v3 后行数、FTS 回填、`.db.bak` 回滚到 v1 全部核对通过；更高版本库只读打开 |
 | 9 | `05-deployment.md` 与产物一致 | ⚠️ | 运行方式已写，安装器待补 |
@@ -139,6 +139,7 @@
 | 删除报告不再吞掉失败的逐表结果 | `deletion.rs` | `deletion` › `a_table_that_refuses_to_empty_fails_step_one` |
 | 迁移 v3：`approvals`/`artifacts` 表、`pause_reason`、FTS5 与三个触发器 | `store/migrations.rs` M003、`store/mod.rs` | `store mod` › `migration_reaches_v3_and_adds_the_pause_reason`、`migrating_twice_is_a_no_op`、`full_text_search_finds_a_message_and_the_delete_trigger_clears_it`、`pause_reason_round_trips_and_clears` |
 | 批准落账，单次可用 | `agent/runner.rs` `note_approval` | `store mod` › `an_approval_is_decided_once_and_used_once`、`a_denied_approval_cannot_be_consumed`、`asking_twice_about_the_same_step_keeps_one_row`；`e2e_agent` › `approval_lets_the_action_run_once` |
+| 三平台 CI 首次全绿（G3 第 3 条的编译面） | `.github/workflows/ci.yml` | 运行 [45525444879](https://github.com/123oqwe/openclicky2.0/actions/runs/45525444879)：`prepare`、`docs-and-invariants`、`rust-macos-latest`、`rust-ubuntu-latest`、`rust-windows-latest` 五项全过；该 PR 此前连续十次红 |
 | 覆盖率接入（G3 第 1 条） | `cargo llvm-cov --workspace --summary-only` | 行覆盖 core 83.55% / 全仓 68.59%；platform 适配层 42.83% |
 | 产物内嵌 commit 与构建时间（tech-prd 631） | `apps/cli/build.rs` + `LONG_VERSION` | `openclicky-cli` › `the_version_line_names_the_build`；真机 `openclicky --version` 输出 `2.0.0 (commit 53af262aaab1, built at unix 1795569338)` |
 | 迁移与恢复演练（G3 第 8 条） | `store::open` 只在真要迁移时备份；`open_read_only` | `migration_drill` › `the_drill_migrates_v1_and_the_backup_restores_it`、`the_backup_stays_the_pre_migration_copy`、`a_newer_database_opens_read_only_instead_of_bricking` |
