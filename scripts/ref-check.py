@@ -7,6 +7,11 @@ This script turns each reference into a lookup and exits non-zero on a miss.
 """
 import re, sys, pathlib, collections
 
+# A Windows console defaults to cp1252; printing Chinese would raise before any
+# check ran. The scripts are the portable part, so they force their own encoding.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DOCS = ROOT / "docs"
 

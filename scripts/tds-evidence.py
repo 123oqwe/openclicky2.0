@@ -7,6 +7,11 @@ for the audit finding "the matrix cites seven test files that do not exist".
 """
 import os, subprocess, sys, pathlib, re
 
+# A Windows console defaults to cp1252; printing Chinese would raise before any
+# check ran. The scripts are the portable part, so they force their own encoding.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 # Where the tests live. The docs branch does not carry code, so we read a branch.
 CANDIDATES = [os.environ.get("TDS_SOURCE_BRANCH", ""), "HEAD", "feat/impl", "origin/feat/impl"]
@@ -17,7 +22,8 @@ def source_branch():
         if not c:
             continue
         r = subprocess.run(["git", "rev-parse", "--verify", "--quiet", c],
-                           cwd=ROOT, capture_output=True, text=True)
+                           cwd=ROOT, capture_output=True,
+                           encoding="utf-8", errors="replace")
         if r.returncode == 0:
             return c
     return None
@@ -173,12 +179,14 @@ ROWS = [
 def tests_on_branch(branch):
     names = {}
     out = subprocess.run(["git", "ls-tree", "-r", "--name-only", branch, "crates"],
-                         cwd=ROOT, capture_output=True, text=True).stdout.split()
+                         cwd=ROOT, capture_output=True,
+                         encoding="utf-8", errors="replace").stdout.split()
     for path in out:
         if not path.endswith(".rs"):
             continue
         body = subprocess.run(["git", "show", f"{branch}:{path}"],
-                              cwd=ROOT, capture_output=True, text=True).stdout
+                              cwd=ROOT, capture_output=True,
+                           encoding="utf-8", errors="replace").stdout
         for m in re.finditer(r'#\[test\]\s*(?:\n\s*)*fn\s+([a-z0-9_]+)', body):
             names.setdefault(path, set()).add(m.group(1))
     return names
