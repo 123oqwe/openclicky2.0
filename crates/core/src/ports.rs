@@ -122,7 +122,6 @@ impl fmt::Debug for SecretString {
     }
 }
 
-/// Re-checked before every tool call and before every capture (INV-7 / INV-D4).
 /// A microphone is not a boolean. "Never asked" and "asked and refused"
 /// need different advice, and only one of them is fixed by a settings toggle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,6 +145,7 @@ impl MicrophoneAccess {
     }
 }
 
+/// Re-checked before every tool call and before every capture (INV-7 / INV-D4).
 pub trait PermissionProbe: Send + Sync {
     fn screen_recording(&self) -> bool;
     fn accessibility(&self) -> bool;
