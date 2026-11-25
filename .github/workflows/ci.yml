@@ -72,13 +72,7 @@ jobs:
           components: rustfmt, clippy
       - name: System deps (Linux)
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libasound2-dev libxcb1-dev libxrandr-dev libdbus-1-dev pkg-config \
-            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
-            libsoup-3.0-dev libxkbcommon-dev libxkbcommon-x11-dev libpipewire-0.3-dev \
-            libgbm-dev libdrm-dev libegl1-mesa-dev libwayland-dev
+        run: bash scripts/linux-deps.sh
       - name: fmt
         run: cargo fmt --all -- --check
       - name: clippy

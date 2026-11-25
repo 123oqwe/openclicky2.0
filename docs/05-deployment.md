@@ -121,7 +121,7 @@ chmod +x OpenClicky-2.0.0-x86_64.AppImage && ./OpenClicky-2.0.0-x86_64.AppImage
 # deb
 sudo dpkg -i openclicky_2.0.0_amd64.deb || sudo apt-get -f install
 ```
-依赖（deb 会声明）：`libwebkit2gtk-4.1-0`、`libgtk-3-0`、`libasound2`、`libxkbcommon0`（enigo 注入用）、`x11-utils`；构建时需要对应的 `-dev` 包（见 CI）。
+依赖（deb 会声明）：`libwebkit2gtk-4.1-0`、`libgtk-3-0`、`libasound2`、`libxkbcommon0`（enigo 注入用）、`x11-utils`；构建时需要对应的 `-dev` 包，唯一来源是 `scripts/linux-deps.sh`（CI 的 `ci.yml` 与 `release.yml` 三个 job 都调它，`check-invariants.sh` 会拦住任何在 workflow 里内联 apt 列表的写法）。
 `openclicky doctor` 应显示 `displays: N` 且 `screen recording: ok`。
 
 ### 5.2 X11 与 Wayland

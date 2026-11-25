@@ -83,6 +83,10 @@ if [ "$has_code" -eq 1 ]; then
     bad "capture_all called without a &guard argument"
   fi
 
+  note "== linux deps come from one script =="
+  inline_deps=$(grep -ln 'apt-get install' .github/workflows/*.yml 2>/dev/null || true)
+  [ -z "$inline_deps" ] || bad "a workflow installs packages inline; call scripts/linux-deps.sh ($inline_deps)"
+
   note "== permissions: probe before tool execution =="
   if ! grep -rn --include='*.rs' 'permission_probe\|PermissionProbe' crates/core/src >/dev/null 2>&1; then
     bad "no PermissionProbe port wired in core"
