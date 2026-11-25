@@ -11,10 +11,8 @@ not a pass for the test, so the output is checked for a real assertion failure.
     check-invariants-can-fail.py --list     print the registry
 """
 import pathlib
-import shutil
 import subprocess
 import sys
-import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -68,18 +66,18 @@ def main(argv):
             bad += 1
             continue
 
-        backup = pathlib.Path(tempfile.mkstemp(suffix=".bak")[1])
-        shutil.copyfile(target, backup)
+        # The backup is the text, not a file. A temp file kept its descriptor
+        # open, and Windows refuses to unlink an open handle (WinError 32) —
+        # the same trap the product hit when it deleted the sqlite file.
         try:
             target.write_text(original.replace(old, new, 1), encoding="utf-8")
             mutated = run(test)
             broke_build = "error[" in mutated.stdout + mutated.stderr
             went_red = mutated.returncode != 0 and not broke_build
         finally:
-            # copyfile, not copy2: preserving the old mtime makes cargo see a
-            # source older than the mutated build and reuse the stale artifact.
-            shutil.copyfile(backup, target)
-            backup.unlink()
+            # A fresh write also bumps the mtime, which is what makes cargo
+            # rebuild instead of reusing the mutated artifact.
+            target.write_text(original, encoding="utf-8")
 
         if not went_red:
             reason = "the mutation did not compile" if broke_build else "the test still passed"
