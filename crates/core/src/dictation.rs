@@ -325,6 +325,7 @@ impl DictationEngine {
             session_id: None,
             started_at: Utc::now(),
             now: Utc::now(),
+            outcome: crate::usage::UsageOutcome::Completed,
             task_already_charged: false,
         })?;
 

@@ -32,6 +32,18 @@ impl UsageKind {
     }
 }
 
+/// Why the action ended. The §4.8 waiver table keys on this and on elapsed time
+/// together; without it the cancel, deny and onboarding rows cannot be decided
+/// at all, which is why they had no carrier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UsageOutcome {
+    #[default]
+    Completed,
+    Cancelled,
+    Denied,
+    Onboarding,
+}
+
 #[derive(Debug, Clone)]
 pub struct MeterInput {
     pub kind: UsageKind,
@@ -39,6 +51,7 @@ pub struct MeterInput {
     pub session_id: Option<String>,
     pub started_at: DateTime<Utc>,
     pub now: DateTime<Utc>,
+    pub outcome: UsageOutcome,
     /// True when the task already consumed its one task-level charge (long task rule).
     pub task_already_charged: bool,
 }
@@ -51,6 +64,7 @@ impl MeterInput {
             session_id: None,
             started_at: now,
             now,
+            outcome: UsageOutcome::Completed,
             task_already_charged: false,
         }
     }
@@ -119,14 +133,23 @@ impl UsageMeter {
             .now
             .signed_duration_since(input.started_at)
             .num_milliseconds();
+        if matches!(
+            input.outcome,
+            UsageOutcome::Denied | UsageOutcome::Onboarding
+        ) {
+            return true;
+        }
         match input.kind {
             // H3: stopped within 10s costs nothing; a long task keeps one charge.
             UsageKind::AgentTask => (0..10_000).contains(&elapsed_ms) || input.task_already_charged,
+            // A spoken question abandoned inside 3s produced no answer to pay for.
+            UsageKind::Voice => {
+                input.outcome == UsageOutcome::Cancelled && (0..3_000).contains(&elapsed_ms)
+            }
             // Every step is metered. A long task still charges once for the
             // task itself; waivering every step past 20 minutes removed the
             // only ceiling on a runaway task.
-            UsageKind::AgentStep => false,
-            _ => false,
+            UsageKind::AgentStep | UsageKind::Dictation => false,
         }
     }
 
@@ -275,6 +298,41 @@ mod tests {
         (store, clock, m)
     }
 
+    fn voice_ended(outcome: UsageOutcome, elapsed_ms: i64) -> (f64, bool) {
+        let (_s, clock, m) = meter();
+        let now = clock.now();
+        m.quote(&MeterInput {
+            kind: UsageKind::Voice,
+            task_id: None,
+            session_id: None,
+            started_at: now - chrono::Duration::milliseconds(elapsed_ms),
+            now,
+            outcome,
+            task_already_charged: false,
+        })
+    }
+
+    #[test]
+    fn a_voice_ask_abandoned_inside_three_seconds_is_free() {
+        assert_eq!(voice_ended(UsageOutcome::Cancelled, 1_200), (0.0, true));
+    }
+
+    #[test]
+    fn a_voice_ask_abandoned_late_still_costs_its_unit() {
+        assert_eq!(voice_ended(UsageOutcome::Cancelled, 9_000), (1.0, false));
+    }
+
+    #[test]
+    fn a_denied_interaction_and_an_onboarding_demo_are_free() {
+        assert_eq!(voice_ended(UsageOutcome::Denied, 30_000), (0.0, true));
+        assert_eq!(voice_ended(UsageOutcome::Onboarding, 30_000), (0.0, true));
+    }
+
+    #[test]
+    fn a_completed_voice_ask_is_never_free() {
+        assert_eq!(voice_ended(UsageOutcome::Completed, 0), (1.0, false));
+    }
+
     #[test]
     fn voice_costs_one_unit() {
         let (_s, clock, m) = meter();
@@ -295,6 +353,7 @@ mod tests {
             session_id: None,
             started_at: started,
             now: clock.now(),
+            outcome: UsageOutcome::Completed,
             task_already_charged: false,
         };
         assert_eq!(m.meter(&input).unwrap(), 0.0);
@@ -320,6 +379,7 @@ mod tests {
             session_id: None,
             started_at: started,
             now: clock.now(),
+            outcome: UsageOutcome::Completed,
             task_already_charged: true,
         };
         assert!(m.meter(&input).unwrap() > 0.0);
@@ -336,6 +396,7 @@ mod tests {
             session_id: None,
             started_at: started,
             now: clock.now(),
+            outcome: UsageOutcome::Completed,
             task_already_charged: true,
         };
         assert_eq!(m.meter(&input).unwrap(), 0.0);

@@ -13,7 +13,7 @@ use crate::ports::{ChatMessage, ChatProvider, ChatRequest, Clock, Role};
 use crate::store::{ApprovalRow, ArtifactRow, StepRecord, Store, TaskRow, TaskStateUpdate};
 use crate::tools::policy::{Approval, Approvals, Policy, Risk};
 use crate::tools::{Registry, ToolCtx, ToolOutcome};
-use crate::usage::{MeterInput, UsageKind, UsageMeter};
+use crate::usage::{MeterInput, UsageKind, UsageMeter, UsageOutcome};
 
 pub struct AgentDeps {
     pub store: Arc<Store>,
@@ -231,6 +231,7 @@ impl TaskRunner {
                 session_id: None,
                 started_at: task.created_at,
                 now: start_now,
+                outcome: UsageOutcome::Completed,
                 task_already_charged: false,
             })?;
             task.units += units;
@@ -296,6 +297,7 @@ impl TaskRunner {
             session_id: None,
             started_at: task.created_at,
             now,
+            outcome: UsageOutcome::Completed,
             task_already_charged: elapsed_long && task.units > 0.0,
         })?;
         task.units += units;

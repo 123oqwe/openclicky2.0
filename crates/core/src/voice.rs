@@ -17,7 +17,7 @@ use crate::privacy::CaptureReason;
 use crate::prompt::{self, PromptContext};
 use crate::router::{self, RouteInput};
 use crate::store::{MessageRow, Turn, UsageRow};
-use crate::usage::{MeterInput, UsageKind};
+use crate::usage::{MeterInput, UsageKind, UsageOutcome};
 use crate::AppEvent;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -138,6 +138,7 @@ impl VoiceEngine {
     /// `trail` is the mouse path recorded while the key was held (SRC-PRD B4).
     pub fn on_hotkey_up_with_trail(&self, trail: Option<crate::geom::Trail>) -> Result<AskOutcome> {
         let started = self.deps.clock.monotonic_ms();
+        let started_at = self.deps.clock.now();
         let clip = self.deps.audio.stop()?;
         if clip.duration_ms() < 200 {
             self.set_state(State::Idle);
@@ -407,12 +408,16 @@ impl VoiceEngine {
             });
         }
 
-        let (units, _waived) = self.deps.usage.quote(&MeterInput {
+        // A cancelled ask never reaches this point: it returns before the turn is
+        // written, so it costs nothing and records nothing. What is charged here
+        // measures from the start of this ask to its answer.
+        let (units, waived) = self.deps.usage.quote(&MeterInput {
             kind: UsageKind::Voice,
             task_id: None,
             session_id: Some(session_id.clone()),
-            started_at: Utc::now(),
-            now: Utc::now(),
+            started_at,
+            now: self.deps.clock.now(),
+            outcome: UsageOutcome::Completed,
             task_already_charged: false,
         });
 
@@ -446,7 +451,7 @@ impl VoiceEngine {
                 units,
                 task_id: None,
                 session_id: Some(session_id.clone()),
-                waived: false,
+                waived,
                 created_at: now,
                 meta_json: None,
             }),
@@ -496,6 +501,7 @@ impl VoiceEngine {
             return Err(Error::BudgetExhausted);
         }
         let started = self.deps.clock.monotonic_ms();
+        let started_at = self.deps.clock.now();
         self.set_state(State::Thinking);
         let config = self.deps.config_snapshot();
         let session_id = self.deps.store.insert_session("typed", Utc::now())?;
@@ -612,12 +618,16 @@ impl VoiceEngine {
                 });
             }
         }
-        let (units, _waived) = self.deps.usage.quote(&MeterInput {
+        // A cancelled ask never reaches this point: it returns before the turn is
+        // written, so it costs nothing and records nothing. What is charged here
+        // measures from the start of this ask to its answer.
+        let (units, waived) = self.deps.usage.quote(&MeterInput {
             kind: UsageKind::Voice,
             task_id: None,
             session_id: Some(session_id.clone()),
-            started_at: Utc::now(),
-            now: Utc::now(),
+            started_at,
+            now: self.deps.clock.now(),
+            outcome: UsageOutcome::Completed,
             task_already_charged: false,
         });
         let now = Utc::now();
@@ -648,7 +658,7 @@ impl VoiceEngine {
                 units,
                 task_id: None,
                 session_id: Some(session_id.clone()),
-                waived: false,
+                waived,
                 created_at: now,
                 meta_json: None,
             }),
