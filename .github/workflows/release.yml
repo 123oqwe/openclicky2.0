@@ -48,9 +48,10 @@ jobs:
             git rev-parse HEAD
             git describe --tags --always
           } > "dist/COMMIT-${{ matrix.artifact }}"
+          source scripts/sha256.sh
           ( cd dist && for f in *; do
               case "$f" in *".sha256") continue;; esac
-              sha256sum "$f" > "$f.sha256"
+              sha256 "$f" > "$f.sha256"
             done )
       - uses: actions/upload-artifact@v4
         with:
@@ -104,9 +105,10 @@ jobs:
             git rev-parse HEAD
             git describe --tags --always
           } > "dist/COMMIT-${{ matrix.artifact }}"
+          source scripts/sha256.sh
           ( cd dist && for f in *; do
               case "$f" in *".sha256") continue;; esac
-              sha256sum "$f" > "$f.sha256"
+              sha256 "$f" > "$f.sha256"
             done )
           ls -la dist
           if [ "$copied" -eq 0 ]; then
@@ -231,9 +233,10 @@ jobs:
       - name: One checksum file for the whole release
         shell: bash
         run: |
+          source scripts/sha256.sh
           cd artifacts
           find . -maxdepth 1 -type f ! -name '*.sha256' ! -name 'SHA256SUMS' -printf '%f\n' \
-            | sort | while read -r f; do sha256sum "$f" >> SHA256SUMS; done
+            | sort | while read -r f; do sha256 "$f" >> SHA256SUMS; done
           echo "--- SHA256SUMS ---"
           cat SHA256SUMS
           test -s SHA256SUMS || {
