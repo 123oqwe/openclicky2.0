@@ -140,6 +140,7 @@
 | 迁移 v3：`approvals`/`artifacts` 表、`pause_reason`、FTS5 与三个触发器 | `store/migrations.rs` M003、`store/mod.rs` | `store mod` › `migration_reaches_v3_and_adds_the_pause_reason`、`migrating_twice_is_a_no_op`、`full_text_search_finds_a_message_and_the_delete_trigger_clears_it`、`pause_reason_round_trips_and_clears` |
 | 批准落账，单次可用 | `agent/runner.rs` `note_approval` | `store mod` › `an_approval_is_decided_once_and_used_once`、`a_denied_approval_cannot_be_consumed`、`asking_twice_about_the_same_step_keeps_one_row`；`e2e_agent` › `approval_lets_the_action_run_once` |
 | release 流水线可运行且能变绿 | `.github/workflows/release.yml` | run 45531794731：六个构建 job 成功，`publish` 因无 tag 被跳过，整体 success（此前手动派发必然红在 tag 上，等于没有信号） |
+| 降级密钥的真相被说出来 | `apps/cli/src/main.rs` doctor、ADR-0009 | `openclicky doctor` 在无钥匙串时说"密钥只在内存、退出即失"，在落盘时说"文件密钥来自同文件的 salt"；ADR-0009 删掉了"由机器绑定信息派生"这句不成立的话 |
 | 三平台安装 + 首启（G3 第 4 条的自动化面） | `.github/workflows/release.yml` `smoke`、`scripts/linux-deps.sh` | run 45536469370 三个 `smoke-*` 全过：Linux 数到 2 个可见窗口，Windows 拿到 `MainWindowTitle=overlay`，macOS 读出版本 2.0.0 且进程存活 |
 | 三平台安装包真的产出（G3 第 3 条） | `.github/workflows/release.yml`、`scripts/linux-deps.sh` | run 45528604668 的六个构建 job；Linux 首轮因 `wayland-client.pc` 与 `libpipewire-0.3` 缺失而红，根因是三份分叉的 apt 列表 |
 | 三平台 CI 首次全绿（G3 第 3 条的编译面） | `.github/workflows/ci.yml` | 运行 [45525444879](https://github.com/123oqwe/openclicky2.0/actions/runs/45525444879)：`prepare`、`docs-and-invariants`、`rust-macos-latest`、`rust-ubuntu-latest`、`rust-windows-latest` 五项全过；该 PR 此前连续十次红 |

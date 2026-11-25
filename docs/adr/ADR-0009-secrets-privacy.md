@@ -49,7 +49,7 @@
 ## 07 决策结论
 
 - **主路径 A**：`platform::secrets` 用 `keyring` 存取（service=`openclicky`，user=`provider/<id>`）。
-- **降级**：keyring 不可用 → 使用 `secrets.enc`（AES-256-GCM，密钥由机器绑定信息派生）+ 首次提示"当前系统无钥匙串，已使用本地加密文件"。
+- **降级**：keyring 不可用 → 使用 `secrets.enc`（AES-256-GCM）。**文件密钥由 `SHA256(固定标签 ‖ salt)` 派生，而 salt 就存在同一个文件头里**，所以这层加密只是把明文挡在命令行和进程列表之外，挡不住拿到该文件的人。`openclicky doctor` 会如实说明这一点。真正的修法是主密码加 Argon2id，那是独立特性，未实现，见 `06-acceptance.md` §7。
 - **写入必须回读校验**：`set` 成功后立即 `get` 一次，值不一致即视为不可用并走降级；`doctor` 按 `secrets.enc` 是否存在报告实际使用的存储。
 - `SecretString`：`Debug`/`Display` 打码；禁止 `serde::Serialize`。
 - 脱敏：`security::redact` 覆盖 `Authorization`、`x-api-key`、`sk-`、`Bearer`、32+ 位 hex/base64、`key=`。

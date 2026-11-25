@@ -364,12 +364,17 @@ fn doctor(app: &App, online: bool) -> anyhow::Result<()> {
         if key.is_some() { "present" } else { "missing" }
     );
     let fallback = app.paths.data_dir.join("secrets.enc");
-    if fallback.exists() {
-        println!("key store: encrypted file (0600) — keychain read-back failed or unavailable");
+    if app.secrets.is_degraded() {
+        println!("key store: memory only — no keychain on this system");
+        println!("           the key is gone when the process exits, so set it again next launch");
+    } else if fallback.exists() {
+        println!(
+            "key store: encrypted file (0600) — the file key comes from a salt stored beside it"
+        );
+        println!("           this keeps the key off the command line, not off the disk");
     } else {
         println!("key store: system keychain");
     }
-    let _ = app.secrets.is_degraded();
     let perms = permissions::probe();
     println!(
         "screen recording: {}",
