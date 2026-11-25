@@ -64,6 +64,15 @@ def main(argv):
     if git("rev-parse", "--verify", "--quiet", base) is None:
         print(f"surface baseline {base[:7]} is not in this clone; run --rebase")
         return 1
+    # A squash merge rewrites the branch, so a baseline recorded from that branch
+    # is no longer an ancestor of main. Comparing across the two lines reports
+    # every function as new, which is noise, not a finding.
+    if base != head() and git("merge-base", "--is-ancestor", base, "HEAD") is None:
+        print(
+            f"surface baseline {base[:7]} is not an ancestor of HEAD (squashed away?). "
+            "Run --rebase to record the current commit."
+        )
+        return 1
 
     matrix = MATRIX.read_text(encoding="utf-8")
     missing = [name for name in new_public_fns(base) if name not in matrix]
