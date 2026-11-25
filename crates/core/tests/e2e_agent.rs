@@ -700,3 +700,33 @@ fn an_unreadable_row_can_be_released_so_the_queue_frees_up() {
         "a parked row must not keep its slot"
     );
 }
+
+#[test]
+fn a_question_waiting_for_an_answer_is_not_fed_back_as_the_answer() {
+    let c = script(vec![
+        tool_call("ask_user", json!({"question": "删掉哪个文件？"})),
+        tool_call("finish", json!({"result": "done"})),
+    ]);
+    let task = c.runner.create("清理文件").unwrap();
+    let first = c.runner.step(&task.id).unwrap();
+    assert_eq!(first.state, TaskState::WaitingUser);
+
+    // A retry or a watchdog can step a WaitingUser task again without an answer.
+    let _ = c.runner.step(&task.id);
+
+    let request = c.chat.last_request().expect("a turn must have happened");
+    let rendered = request
+        .messages
+        .iter()
+        .map(|m| m.content.clone())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        !rendered.contains("the user answered your question"),
+        "an unanswered question must not be labelled as the answer; got: {rendered}"
+    );
+    assert!(
+        rendered.contains("删掉哪个文件"),
+        "the question itself stays visible"
+    );
+}

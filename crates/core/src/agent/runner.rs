@@ -801,7 +801,12 @@ impl TaskRunner {
             .checkpoint
             .pending_question
             .as_ref()
-            .map(|q| format!("\nthe user answered your question: {q}\n"))
+            // While this is set the answer has not arrived yet: it is cleared by
+            // `answer_question`, which also puts the real answer into the facts.
+            // Labelling it as the answer fed the model its own question back.
+            .map(|q| {
+                format!("\nyou asked the user: {q}\nwaiting for their answer; do not treat it as answered.\n")
+            })
             .unwrap_or_default();
         let user = format!(
             "goal: {}\n\nwhat already happened:\n{}{}\ncontinue. when you are done, call finish with a short result and any artifacts.",
