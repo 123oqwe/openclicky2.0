@@ -100,8 +100,16 @@ if [ "$has_code" -eq 1 ]; then
 
   note "== invariant cases can fail =="
   if [ "${RUN_INVARIANT_MUTATIONS:-0}" = "1" ]; then
-    python3 scripts/check-invariants-can-fail.py \
-      || bad "an invariant case cannot fail, so it proves nothing"
+    mutation_out=$(python3 scripts/check-invariants-can-fail.py 2>&1) || {
+      echo "$mutation_out"
+      bad "an invariant case cannot fail, so it proves nothing"
+    }
+    echo "$mutation_out"
+    # A switch that is on but proves nothing is the failure this whole rule
+    # exists to prevent: an empty harness would otherwise report success.
+    if ! echo "$mutation_out" | grep -q '^OK '; then
+      bad "the mutation harness reported no cases, so it checked nothing"
+    fi
   else
     note "   skipped here (needs cargo); the rust jobs run it with RUN_INVARIANT_MUTATIONS=1"
   fi

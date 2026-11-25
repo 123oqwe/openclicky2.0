@@ -79,4 +79,11 @@ jobs:
       - name: invariants
         env:
           RUN_INVARIANT_MUTATIONS: "1"
-        run: bash scripts/check-invariants.sh
+        run: |
+          # If the env line above disappears, both jobs would print "skipped"
+          # and the most expensive check would vanish quietly.
+          test "${RUN_INVARIANT_MUTATIONS}" = "1" || {
+            echo "::error::the mutation check must run in this job"
+            exit 1
+          }
+          bash scripts/check-invariants.sh
