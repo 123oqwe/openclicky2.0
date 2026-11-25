@@ -165,7 +165,7 @@ DESK
 
 | # | 步骤 | 通过标准 |
 |---|---|---|
-| 1 | 安装产物 | 能在目标系统启动并打印版本+commit（`openclicky --version` → `2.0.0 (commit <sha>, built at unix <epoch>)`；`doctor` 首行也带 commit） |
+| 1 | 安装产物 | 能在目标系统启动并打印版本+commit（`openclicky --version` → `2.0.0 (commit <sha>, built at unix <epoch>)`；`doctor` 首行也带 commit）。**已自动化**：`release.yml` 的 `smoke` job 在三平台装包、启动、要求出现窗口，见 `06-acceptance.md` §3 第 4 条 |
 | 2 | `doctor` | 无 `E_*` 错误；权限与环境如实报告 |
 | 3 | `selftest --out /tmp/shot.png` | 每块屏都有尺寸与字节数；图片能打开 |
 | 4 | 配 key 后 `doctor --online` | 能列出模型；配置的模型在列表里 |

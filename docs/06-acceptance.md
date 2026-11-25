@@ -72,7 +72,7 @@
 | 1 | L1–L3 全绿 + 覆盖率 | ✅ | 189 tests 全绿；`cargo llvm-cov --workspace --summary-only` 实测行覆盖 core 83.55%、全仓 68.59%、platform 适配层 42.83%。目标 80% 按业务逻辑算，platform 的 0% 全在需要硬件的模块（audio/capture/http/paths/permissions/speech/tts） |
 | 2 | clippy 无警告、fmt 干净 | ✅ | CI rust matrix / 本地同命令 |
 | 3 | 三平台 release 构建成功 | ✅ | run [45528604668](https://github.com/123oqwe/openclicky2.0/actions/runs/45528604668)：`build` 与 `desktop` 六个 job 全过，产出 `OpenClicky_2.0.0_aarch64.dmg`（3.40 MiB）、`OpenClicky.app`（7.37 MiB）、`OpenClicky_2.0.0_x64-setup.exe`（2.95 MiB）、`OpenClicky_2.0.0_amd64.AppImage`、`OpenClicky_2.0.0_amd64.deb`，外加三平台 CLI 二进制。`publish` 现在有 tag 条件，手动派发时被跳过，run [45531794731](https://github.com/123oqwe/openclicky2.0/actions/runs/45531794731) 六个构建 job 成功、整体为绿；正式发布要等合并后打 `v*` tag |
-| 4 | 三平台安装 + 首启冒烟 | ❌ | 无安装器产物 |
+| 4 | 三平台安装 + 首启冒烟 | ⚠️ 自动化部分已过，人的那一半未做 | run [45536469370](https://github.com/123oqwe/openclicky2.0/actions/runs/45536469370) 的 `smoke-*`：Windows 装到 `%LOCALAPPDATA%\OpenClicky\openclicky-desktop.exe`、窗口标题 `overlay`；Linux 装到 `/usr/bin/openclicky-desktop`、可见窗口 2 个；macOS 挂载 dmg 取到 `OpenClicky.app`、版本 2.0.0、进程存活。仍缺的是“配 key → 问一句 → 看它指 → 交办一件 → 批准”，那要真人加真 key |
 | 5 | INV-1…8 有用例且通过 | ✅ | INV-1/3/4/7 绑定用例；INV-2 扫库验证 key 未落盘；INV-5 批准后写入 + 审计行断言、策略与写入器对“是否越界”的判定有对拍用例；INV-6 跨两步断言任务费只收一次；INV-8 恢复不重放 |
 | 6 | G2 结论绑定同一 commit | ✅ | 本文件与 §2 全部工作包绑定 `16e9579`；WP6 的“有条件”是结论本身，不是过期 |
 | 7 | 无 P0/P1 未测项 | ⚠️ | 见 §5 |
@@ -140,6 +140,7 @@
 | 迁移 v3：`approvals`/`artifacts` 表、`pause_reason`、FTS5 与三个触发器 | `store/migrations.rs` M003、`store/mod.rs` | `store mod` › `migration_reaches_v3_and_adds_the_pause_reason`、`migrating_twice_is_a_no_op`、`full_text_search_finds_a_message_and_the_delete_trigger_clears_it`、`pause_reason_round_trips_and_clears` |
 | 批准落账，单次可用 | `agent/runner.rs` `note_approval` | `store mod` › `an_approval_is_decided_once_and_used_once`、`a_denied_approval_cannot_be_consumed`、`asking_twice_about_the_same_step_keeps_one_row`；`e2e_agent` › `approval_lets_the_action_run_once` |
 | release 流水线可运行且能变绿 | `.github/workflows/release.yml` | run 45531794731：六个构建 job 成功，`publish` 因无 tag 被跳过，整体 success（此前手动派发必然红在 tag 上，等于没有信号） |
+| 三平台安装 + 首启（G3 第 4 条的自动化面） | `.github/workflows/release.yml` `smoke`、`scripts/linux-deps.sh` | run 45536469370 三个 `smoke-*` 全过：Linux 数到 2 个可见窗口，Windows 拿到 `MainWindowTitle=overlay`，macOS 读出版本 2.0.0 且进程存活 |
 | 三平台安装包真的产出（G3 第 3 条） | `.github/workflows/release.yml`、`scripts/linux-deps.sh` | run 45528604668 的六个构建 job；Linux 首轮因 `wayland-client.pc` 与 `libpipewire-0.3` 缺失而红，根因是三份分叉的 apt 列表 |
 | 三平台 CI 首次全绿（G3 第 3 条的编译面） | `.github/workflows/ci.yml` | 运行 [45525444879](https://github.com/123oqwe/openclicky2.0/actions/runs/45525444879)：`prepare`、`docs-and-invariants`、`rust-macos-latest`、`rust-ubuntu-latest`、`rust-windows-latest` 五项全过；该 PR 此前连续十次红 |
 | 覆盖率接入（G3 第 1 条） | `cargo llvm-cov --workspace --summary-only` | 行覆盖 core 83.55% / 全仓 68.59%；platform 适配层 42.83% |
