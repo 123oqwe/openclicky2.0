@@ -299,13 +299,20 @@ const T = window.__TAURI__;
         ['accessibility', '辅助功能'],
         ['microphone', '麦克风'],
       ];
-      const missing = items.filter(([k]) => !p[k]);
+      // The microphone is not a boolean any more: "granted" is the only value
+      // that means present, and "not_determined" needs a prompt, not settings.
+      const present = (k, v) => (k === 'microphone' ? v === 'granted' : !!v);
+      const missing = items.filter(([k]) => !present(k, p[k]));
       hasMissingPerms = missing.length > 0;
       $('permStep').hidden = missing.length === 0;
       for (const [k, label] of missing) {
         const row = el('div', { class: 'row' });
         row.append(el('span', { class: 'pill rec', text: `缺 ${label}` }));
-        row.append(act('打开系统设置', () => invoke('request_permission', { kind: k })));
+        const askNow = k === 'microphone' && p[k] === 'not_determined';
+        row.append(
+          act(askNow ? '请求麦克风授权' : '打开系统设置',
+              () => invoke('request_permission', { kind: k }))
+        );
         host.append(row);
       }
       const guide = $('permGuide');
