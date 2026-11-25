@@ -34,14 +34,20 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            cp target/release/openclicky.exe dist/ || true
+          # The three CLI builds all produce "openclicky", and the publish job
+          # flattens the artifacts, so the name has to carry the platform.
+          suffix=$(echo "${RUNNER_OS}" | tr '[:upper:]' '[:lower:]')
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            cp target/release/openclicky.exe "dist/openclicky-${suffix}.exe"
           else
-            cp target/release/openclicky dist/
+            cp target/release/openclicky "dist/openclicky-${suffix}"
           fi
-          # record provenance so an artifact can be traced to a commit
-          git rev-parse HEAD > dist/COMMIT
-          git describe --tags --always >> dist/COMMIT
+          # Provenance per platform: a flat download would otherwise have three
+          # files called COMMIT that overwrite each other.
+          {
+            git rev-parse HEAD
+            git describe --tags --always
+          } > "dist/COMMIT-${{ matrix.artifact }}"
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
@@ -90,8 +96,10 @@ jobs:
           if [ -d "target/release/bundle/macos/OpenClicky.app" ]; then
             (cd target/release/bundle/macos && zip -qr "$GITHUB_WORKSPACE/dist/OpenClicky.app.zip" OpenClicky.app)
           fi
-          git rev-parse HEAD > dist/COMMIT
-          git describe --tags --always >> dist/COMMIT
+          {
+            git rev-parse HEAD
+            git describe --tags --always
+          } > "dist/COMMIT-${{ matrix.artifact }}"
           ls -la dist
           if [ "$copied" -eq 0 ]; then
             echo "::error::no installer was produced for ${{ matrix.os }}; a green job with an empty artifact is worse than a red one"
@@ -207,14 +215,25 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+          merge-multiple: true
+      - name: One checksum file for the whole release
+        shell: bash
+        run: |
+          cd artifacts
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS' -printf '%f\n' \
+            | sort | while read -r f; do sha256sum "$f" >> SHA256SUMS; done
+          echo "--- SHA256SUMS ---"
+          cat SHA256SUMS
+          test -s SHA256SUMS || {
+            echo "::error::no artifacts to checksum"
+            exit 1
+          }
       - uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/**/*
+          files: artifacts/*
           generate_release_notes: true
-          body: |
-            Install steps per platform: see `docs/05-deployment.md`.
-            Unsigned builds require the documented bypass on first launch.
-            Artifacts contain a COMMIT file for traceability.
+          body_path: CHANGELOG.md
