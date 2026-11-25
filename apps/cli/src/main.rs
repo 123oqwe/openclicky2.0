@@ -32,10 +32,23 @@ use openclicky_platform::secrets::PlatformSecrets;
 use openclicky_platform::singleton::Singleton;
 use openclicky_platform::speech::SystemSpeech;
 
+/// A smoke report has to name the build it ran against. The commit and the
+/// build stamp come from `build.rs`, which reads git and falls back to
+/// "unknown" in a source tarball.
+const LONG_VERSION: &str = concat!(
+    env!("CARGO_PKG_VERSION"),
+    " (commit ",
+    env!("OPENCLICKY_COMMIT"),
+    ", built at unix ",
+    env!("OPENCLICKY_BUILT_AT"),
+    ")"
+);
+
 #[derive(Parser)]
 #[command(
     name = "openclicky",
     version,
+    long_version = LONG_VERSION,
     about = "an ai buddy that lives on your computer"
 )]
 struct Cli {
@@ -278,9 +291,10 @@ fn main() -> anyhow::Result<()> {
 
 fn doctor(app: &App, online: bool) -> anyhow::Result<()> {
     println!(
-        "openclicky {} ({})",
+        "openclicky {} ({}) commit {}",
         env!("CARGO_PKG_VERSION"),
-        std::env::consts::OS
+        std::env::consts::OS,
+        env!("OPENCLICKY_COMMIT")
     );
     println!("config: {}", app.paths.config_file().display());
     println!("data:   {}", app.paths.data_dir.display());
@@ -442,4 +456,22 @@ fn selftest(app: &App, out: Option<PathBuf>) -> anyhow::Result<()> {
     let _lock = Singleton::acquire(&app.paths.lock_file())?;
     println!("singleton: ok");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_version_line_names_the_build() {
+        assert!(
+            LONG_VERSION.starts_with(env!("CARGO_PKG_VERSION")),
+            "{LONG_VERSION}"
+        );
+        assert!(LONG_VERSION.contains("commit "), "{LONG_VERSION}");
+        assert!(
+            !LONG_VERSION.contains("OPENCLICKY"),
+            "an unexpanded env var leaked into the version: {LONG_VERSION}"
+        );
+    }
 }
