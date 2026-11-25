@@ -1,5 +1,7 @@
 //! Scheduled tasks. Time is injected; the module never sleeps.
 
+// UNWIRED: the desktop shell starts no scheduler, so decide() and catch_up_once() have no caller. See #46.
+
 use chrono::{DateTime, Datelike, Duration, Local, TimeZone, Weekday};
 
 use crate::error::{Error, Result};

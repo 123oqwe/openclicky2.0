@@ -1,5 +1,7 @@
 //! Step-by-step guidance: advance on hit, release on miss, never exceed 15.
 
+// UNWIRED: teaching cards are never generated, so PromptContext.teaching_card stays None. See #47.
+
 use crate::annotations::{Point, Rect};
 use crate::error::{Error, Result};
 

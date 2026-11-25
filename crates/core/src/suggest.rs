@@ -1,5 +1,7 @@
 //! Interruption budget for suggestions and next-step chips (SRC-PRD M6, M9).
 
+// UNWIRED: nothing emits or records suggestions yet, so the budget never runs. See #46.
+
 use chrono::{DateTime, Datelike, Duration, NaiveDate, Timelike, Utc};
 
 #[derive(Debug, Clone, Default, PartialEq)]

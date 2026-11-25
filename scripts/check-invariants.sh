@@ -67,6 +67,10 @@ if [ "$has_code" -eq 1 ]; then
               | grep -vE ':[0-9]+: *//' || true)
   [ -z "$proc_hits" ] || bad "crates/core uses std::process: $proc_hits"
 
+  note "== core: every module is wired, or declares UNWIRED =="
+  python3 scripts/check-wiring.py --quiet \
+    || bad "an unwired core module has no UNWIRED marker (scripts/check-wiring.py)"
+
   note "== capture: every call site passes a guard; only voice or an explicit user action =="
   # Ignore comments; a real call looks like `x.capture_all(&guard)`.
   calls=$(grep -rn --include='*.rs' 'capture_all(' crates/core/src crates/platform/src apps 2>/dev/null \
