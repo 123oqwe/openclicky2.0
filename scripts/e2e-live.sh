@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Proves the ask path on a real binary with no key and no network.
 #
-#   scripts/e2e-live.sh                 typed question, screen capture optional
-#   REQUIRE_SCREEN=1 scripts/e2e-live.sh  fail unless the screen was captured
+#   scripts/e2e-live.sh                    fail unless the screen was captured
+#   REQUIRE_SCREEN=0 scripts/e2e-live.sh    tolerate a headless box that cannot capture
 #
 # The mock provider records every request, so "the screen went to the model" and
 # "the prompt carried the annotation grammar" are checked from evidence rather
@@ -57,9 +57,17 @@ captions = false
 TOML
 
 # Older builds have no --remember-file and report a refused keychain as success,
-# so try the durable flag first and accept the plain form only if it exists.
+# so try the durable form first and accept the plain one only if it exists.
 if ! printf 'test-key\n' | "$BIN" --data-dir "$TMP" set-key --remember-file >/dev/null 2>&1; then
-  printf 'test-key\n' | "$BIN" --data-dir "$TMP" set-key >/dev/null 2>&1 || fail "set-key"
+  printf 'test-key\n' | "$BIN" --data-dir "$TMP" set-key >/dev/null 2>&1 || true
+fi
+# A key that only lived in the set-key process is not a key. Checking the next
+# process is what separates "the store kept it" from "set-key said it did".
+if ! "$BIN" --data-dir "$TMP" doctor 2>/dev/null | grep -q '^api key: present'; then
+  printf 'CANNOT RUN: this build cannot persist a key (no durable store), so ask\n' >&2
+  printf 'cannot be exercised. The fix is the durable key store; run again on a\n' >&2
+  printf 'build that has it.\n' >&2
+  exit 2
 fi
 
 OUT="$("$BIN" --data-dir "$TMP" ask --text "提交按钮在哪")" || fail "ask exited non-zero"
@@ -69,7 +77,7 @@ case "$OUT" in
   *) fail "the answer text did not come back from the model" ;;
 esac
 
-python3 - "$LOG" "${REQUIRE_SCREEN:-0}" <<'PY' || exit 1
+python3 - "$LOG" "${REQUIRE_SCREEN:-1}" <<'PY' || exit 1
 import json
 import sys
 
@@ -90,7 +98,11 @@ parts = body["messages"][-1]["content"]
 images = [p for p in parts if isinstance(p, dict) and p.get("type") == "image_url"] if isinstance(parts, list) else []
 print(f"screens attached: {len(images)}")
 if require_screen and not images:
-    print("FAIL: no screenshot reached the model", file=sys.stderr)
+    print(
+        "FAIL: no screenshot reached the model. This script exists to prove the "
+        "screen is part of the request; set REQUIRE_SCREEN=0 only on a headless box.",
+        file=sys.stderr,
+    )
     sys.exit(1)
 
 print("model asked:", body.get("model"))
