@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Without this key macOS kills the process the first time it asks for the
+       microphone, which is what a user sees as "it crashed on first use". -->
+  <key>NSMicrophoneUsageDescription</key>
+  <string>OpenClicky listens only while you hold the talk key.</string>
+</dict>
+</plist>

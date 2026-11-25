@@ -86,7 +86,33 @@ jobs:
         run: npm install -g @tauri-apps/cli@^2
       - name: Bundle
         working-directory: apps/desktop
+        env:
+          # Ad-hoc sign the bundle. Without this the Mach-O carries a signature
+          # that says "there are sealed resources" while no _CodeSignature is
+          # written, and codesign --verify reports "code has no resources but
+          # signature indicates they must be present" on every download.
+          APPLE_SIGNING_IDENTITY: "-"
         run: tauri build --bundles ${{ matrix.bundles }}
+      - name: The macOS bundle must be self-consistent
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          app="target/release/bundle/macos/OpenClicky.app"
+          test -d "$app/Contents/_CodeSignature" || {
+            echo "::error::no _CodeSignature in the bundle; the seal was never written"
+            exit 1
+          }
+          codesign --verify --verbose=2 "$app" || {
+            echo "::error::codesign rejects the bundle"
+            exit 1
+          }
+          /usr/libexec/PlistBuddy -c "Print :NSMicrophoneUsageDescription" \
+            "$app/Contents/Info.plist" >/dev/null || {
+            echo "::error::Info.plist has no NSMicrophoneUsageDescription; macOS kills the process on the first microphone request"
+            exit 1
+          }
+          echo "bundle seal and microphone usage string are both present"
+
       - name: Collect artifacts
         shell: bash
         run: |
