@@ -99,8 +99,12 @@ if [ "$has_code" -eq 1 ]; then
     || bad "a new public function has no case in docs/04-test-design.md"
 
   note "== invariant cases can fail =="
-  python3 scripts/check-invariants-can-fail.py \
-    || bad "an invariant case cannot fail, so it proves nothing"
+  if [ "${RUN_INVARIANT_MUTATIONS:-0}" = "1" ]; then
+    python3 scripts/check-invariants-can-fail.py \
+      || bad "an invariant case cannot fail, so it proves nothing"
+  else
+    note "   skipped here (needs cargo); the rust jobs run it with RUN_INVARIANT_MUTATIONS=1"
+  fi
 
   note "== the diff stays inside the declared task scope =="
   python3 scripts/check-scope.py \
