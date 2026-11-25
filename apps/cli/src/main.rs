@@ -90,6 +90,16 @@ enum Command {
         name: String,
     },
     Usage,
+    /// Show what OpenClicky remembers about you.
+    Memory,
+    /// Remember a preference, verbatim.
+    Remember {
+        text: String,
+    },
+    /// Forget every remembered line containing this text.
+    Forget {
+        needle: String,
+    },
     /// Permanently delete all local OpenClicky data (8 ordered steps).
     Delete {
         #[arg(long)]
@@ -221,6 +231,48 @@ fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Command::Task { goal, dry_run } => task(&app, &goal, dry_run),
+        Command::Memory => {
+            let memory = Memory::load(&app.paths.memory_dir())?;
+            let profile = memory.profile_text();
+            let projects = memory.projects_text();
+            println!("preferences:");
+            println!(
+                "{}",
+                if profile.trim().is_empty() {
+                    "  (nothing yet)"
+                } else {
+                    profile.trim()
+                }
+            );
+            println!("ongoing:");
+            println!(
+                "{}",
+                if projects.trim().is_empty() {
+                    "  (nothing yet)"
+                } else {
+                    projects.trim()
+                }
+            );
+            if memory.profile_over_budget() {
+                println!("note: preferences are over budget and will be compacted");
+            }
+            Ok(())
+        }
+        Command::Remember { text } => {
+            if text.trim().is_empty() {
+                return Err(anyhow!("nothing to remember"));
+            }
+            let memory = Memory::load(&app.paths.memory_dir())?;
+            memory.add_preference(text.trim())?;
+            println!("remembered: {}", text.trim());
+            Ok(())
+        }
+        Command::Forget { needle } => {
+            let memory = Memory::load(&app.paths.memory_dir())?;
+            let removed = memory.forget(&needle)?;
+            println!("forgot {removed} line(s) matching {needle:?}");
+            Ok(())
+        }
         Command::Dictate { seconds } => {
             let (deps, _engine, _mem) = app.deps()?;
             let dict = DictationEngine::new(deps);

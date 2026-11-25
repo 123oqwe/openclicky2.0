@@ -34,6 +34,17 @@ fn script_on_disk(responses: Vec<ChatResponse>) -> Ctx {
     script_with(store, dir, responses)
 }
 
+/// A harness whose memory files already hold something, the state the app is in
+/// on the second launch after `openclicky remember` wrote them.
+fn script_with_memory(responses: Vec<ChatResponse>, prefs: &[&str]) -> Ctx {
+    let dir = tempfile::tempdir().unwrap();
+    let mem_dir = dir.path().join("memory");
+    std::fs::create_dir_all(&mem_dir).unwrap();
+    std::fs::write(mem_dir.join("profile.md"), prefs.join("\n")).unwrap();
+    let store = Arc::new(Store::open_memory().unwrap());
+    script_with(store, dir, responses)
+}
+
 fn script_with(store: Arc<Store>, dir: tempfile::TempDir, responses: Vec<ChatResponse>) -> Ctx {
     let chat = ScriptedChat::new(responses);
     let chat_handle = chat.clone();
@@ -610,5 +621,25 @@ fn a_tool_result_reaches_the_model_as_content_not_a_digest() {
     assert!(
         rendered.contains("quarterly revenue was 42 units"),
         "the model must receive the file body, not a char count; got: {rendered}"
+    );
+}
+
+#[test]
+fn a_remembered_preference_reaches_the_task_prompt() {
+    // The write side is the `openclicky remember` command; this pins the read
+    // side, which is the half that feeds the model.
+    let c = script_with_memory(
+        vec![tool_call("finish", json!({"result": "done"}))],
+        &["回答用中文，短一点"],
+    );
+
+    let task = c.runner.create("说点什么").unwrap();
+    c.runner.step(&task.id).unwrap();
+
+    let request = c.chat.last_request().expect("a turn must have happened");
+    assert!(
+        request.system.contains("回答用中文，短一点"),
+        "a remembered preference belongs in the system prompt; got: {}",
+        request.system
     );
 }
