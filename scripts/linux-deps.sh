@@ -22,7 +22,7 @@ case "$mode" in
   smoke)
     # A virtual display plus a session bus, because a WebKit GTK window exits
     # immediately without one.
-    sudo apt-get install -y xvfb dbus-x11 libgl1-mesa-dri
+    sudo apt-get install -y xvfb dbus-x11 libgl1-mesa-dri xdotool
     ;;
   *)
     echo "usage: $0 [build|smoke]" >&2
