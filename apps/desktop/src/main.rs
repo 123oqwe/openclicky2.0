@@ -451,7 +451,7 @@ fn request_permission(kind: String) -> serde_json::Value {
                 open_privacy_pane("Privacy_Microphone")
             }
             openclicky_core::ports::MicrophoneAccess::NotDetermined => {
-                platform_permissions::request_microphone();
+                platform_permissions::request_microphone(&CpalAudio::new());
             }
             openclicky_core::ports::MicrophoneAccess::Granted => {}
         },

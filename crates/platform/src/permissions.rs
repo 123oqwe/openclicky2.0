@@ -97,9 +97,10 @@ pub fn request_screen_recording() -> bool {
 /// first time a process touches the microphone, so this is what turns
 /// "not determined" into a decision. The prompt is the side effect; the return
 /// value only says whether the stream opened.
-pub fn request_microphone() -> bool {
-    use openclicky_core::ports::AudioSource;
-    let audio = crate::audio::CpalAudio::new();
+///
+/// The source is a parameter, not a constructor call, so the failure path can
+/// be tested without a microphone.
+pub fn request_microphone(audio: &dyn openclicky_core::ports::AudioSource) -> bool {
     if audio.start().is_err() {
         return false;
     }
@@ -176,6 +177,44 @@ mod tests {
     #[test]
     fn granted_microphone_says_nothing() {
         assert!(missing_guidance(state(MicrophoneAccess::Granted)).is_empty());
+    }
+
+    struct FakeAudio {
+        opens: bool,
+    }
+
+    impl openclicky_core::ports::AudioSource for FakeAudio {
+        fn start(&self) -> openclicky_core::error::Result<()> {
+            if self.opens {
+                Ok(())
+            } else {
+                Err(openclicky_core::error::Error::NoPermission(
+                    openclicky_core::error::Permission::Microphone,
+                ))
+            }
+        }
+        fn stop(&self) -> openclicky_core::error::Result<openclicky_core::ports::AudioClip> {
+            Ok(openclicky_core::ports::AudioClip {
+                pcm: Vec::new(),
+                sample_rate: 16_000,
+                channels: 1,
+            })
+        }
+        fn snapshot(&self) -> openclicky_core::error::Result<openclicky_core::ports::AudioClip> {
+            self.stop()
+        }
+        fn is_recording(&self) -> bool {
+            false
+        }
+    }
+
+    #[test]
+    fn requesting_the_microphone_reports_whether_the_stream_opened() {
+        assert!(request_microphone(&FakeAudio { opens: true }));
+        assert!(
+            !request_microphone(&FakeAudio { opens: false }),
+            "a refused stream must not be reported as a granted microphone"
+        );
     }
 
     #[test]
