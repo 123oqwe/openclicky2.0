@@ -69,8 +69,66 @@ case ":$PATH:" in
         ;;
 esac
 
+# The desktop shell. openclicky app looks for it at a fixed path per platform, so
+# the installer is what makes "install, then openclicky app" true.
+version_bare=""
+tag=""
+
+resolve_version() {
+    if [ -n "$VERSION" ]; then
+        tag="$VERSION"
+    else
+        tag=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
+              | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)
+    fi
+    [ -n "$tag" ] || return 1
+    version_bare="${tag#v}"
+}
+
+install_desktop() {
+    resolve_version || { say "  could not resolve the release version; skipping the desktop app"; return 0; }
+    local base="https://github.com/${REPO}/releases/download/${tag}"
+
+    case "$os" in
+        macos)
+            # The release carries an arm64 disk image only, so an Intel Mac gets
+            # the CLI and an honest note rather than a silent mismatch.
+            local name="OpenClicky_${version_bare}_aarch64.dmg" tmpd
+            tmpd="$(mktemp -d)"
+            if ! curl -fsSL "${base}/${name}" -o "$tmpd/OpenClicky.dmg"; then
+                say "  no desktop build for this machine (${name} unavailable); the CLI still works"
+                rm -rf "$tmpd"
+                return 0
+            fi
+            if ! hdiutil attach "$tmpd/OpenClicky.dmg" -nobrowse -quiet -mountpoint "$tmpd/mnt"; then
+                say "  could not mount the disk image; the CLI still works"
+                rm -rf "$tmpd"
+                return 0
+            fi
+            mkdir -p "$HOME/Applications"
+            rm -rf "$HOME/Applications/OpenClicky.app"
+            cp -R "$tmpd/mnt/OpenClicky.app" "$HOME/Applications/"
+            hdiutil detach "$tmpd/mnt" -quiet || true
+            rm -rf "$tmpd"
+            say "installed the desktop app at ~/Applications/OpenClicky.app"
+            ;;
+        linux)
+            local name="OpenClicky_${version_bare}_amd64.AppImage"
+            if curl -fsSL "${base}/${name}" -o "$PREFIX/OpenClicky.AppImage"; then
+                chmod +x "$PREFIX/OpenClicky.AppImage"
+                ln -sf "$PREFIX/OpenClicky.AppImage" "$PREFIX/openclicky-desktop"
+                say "installed the desktop app at $PREFIX/OpenClicky.AppImage"
+            else
+                say "  could not download the desktop app; the CLI still works"
+            fi
+            ;;
+    esac
+}
+
+install_desktop
+
 say ""
 say "next:"
 say "  openclicky set-key      # paste your provider key"
 say "  openclicky doctor       # check permissions"
-say "  openclicky app          # start the desktop shell (once it exists)"
+say "  openclicky app          # start the desktop shell"

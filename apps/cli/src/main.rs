@@ -105,6 +105,12 @@ enum Command {
         #[arg(long)]
         yes: bool,
     },
+    /// Start the desktop shell.
+    App {
+        /// Keep the shell in the foreground so its output stays visible.
+        #[arg(long)]
+        wait: bool,
+    },
 }
 
 struct PrintOverlay;
@@ -294,6 +300,7 @@ fn main() -> anyhow::Result<()> {
             println!("saved {name}");
             Ok(())
         }
+        Command::App { wait } => open_app(wait),
         Command::Delete { yes } => {
             if !yes {
                 println!("this removes all local data; re-run with --yes");
@@ -486,6 +493,80 @@ fn task(app: &App, goal: &str, dry_run: bool) -> anyhow::Result<()> {
     }
     if let Some(e) = done.error_code {
         println!("code: {e}");
+    }
+    Ok(())
+}
+
+/// Where the desktop shell lands once installed, per platform.
+fn find_desktop() -> Option<PathBuf> {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+
+    #[cfg(target_os = "macos")]
+    {
+        let bundle = home
+            .as_ref()?
+            .join("Applications")
+            .join("OpenClicky.app")
+            .join("Contents")
+            .join("MacOS")
+            .join("openclicky-desktop");
+        if bundle.exists() {
+            return Some(bundle);
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let local = std::env::var_os("LOCALAPPDATA").map(PathBuf::from)?;
+        let exe = local.join("OpenClicky").join("openclicky-desktop.exe");
+        if exe.exists() {
+            return Some(exe);
+        }
+    }
+
+    let candidate = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("openclicky-desktop")));
+    if let Some(p) = candidate {
+        if p.exists() {
+            return Some(p);
+        }
+    }
+    if let Some(p) = home
+        .as_ref()
+        .map(|h| h.join(".local/bin/openclicky-desktop"))
+    {
+        if p.exists() {
+            return Some(p);
+        }
+    }
+    None
+}
+
+fn open_app(wait: bool) -> anyhow::Result<()> {
+    let Some(shell) = find_desktop() else {
+        let hint = if cfg!(target_os = "windows") {
+            "irm https://raw.githubusercontent.com/123oqwe/openclicky2.0/main/scripts/install.ps1 | iex"
+        } else {
+            "curl -fsSL https://raw.githubusercontent.com/123oqwe/openclicky2.0/main/scripts/install.sh | sh"
+        };
+        anyhow::bail!(
+            "the desktop shell is not installed yet. Run this, then try again:\n  {hint}"
+        );
+    };
+    println!("starting {}", shell.display());
+    let mut cmd = std::process::Command::new(&shell);
+    if wait {
+        let status = cmd.status()?;
+        anyhow::ensure!(status.success(), "the desktop shell exited with {status}");
+    } else {
+        // Detached means the caller's stdout is not held open by a child that
+        // outlives it: an inherited pipe makes `openclicky app | cat` hang until
+        // the window is closed.
+        cmd.stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        cmd.spawn()?;
     }
     Ok(())
 }

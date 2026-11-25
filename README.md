@@ -72,7 +72,15 @@ displays: 1
 - 失败：`缺少「辅助功能」权限。…`
   处理：`系统设置 → 隐私与安全性 → 辅助功能 → 勾选 OpenClicky（听写与工具需要）。`
 
-**3. 按一次热键。** `Ctrl+Alt+Space`。按住说话，松开提问，答案会播报并在屏幕上指出来。`Ctrl+Alt+O` 召回窗口。
+**3. 起界面，按一次热键。**
+
+```bash
+openclicky app          # 起桌面壳；加 --wait 留在前台看输出
+```
+
+窗口起来后按 `Ctrl+Alt+Space`。按住说话，松开提问，答案会播报并在屏幕上指出来。`Ctrl+Alt+O` 召回窗口。
+
+- 失败：`the desktop shell is not installed yet. Run this, then try again:` 后面跟着安装命令，说明桌面壳没装到位，回到安装那一步。
 
 - 失败：`no api key; run: openclicky set-key`，回到第 1 步。
 - 失败：`还没有选择模型（Settings → 模型）`，回到第 2 步。
