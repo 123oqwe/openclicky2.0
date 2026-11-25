@@ -94,6 +94,18 @@ if [ "$has_code" -eq 1 ]; then
                 | grep -vE '\./|/dist/' || true)
   [ -z "$inline_deps" ] || bad "a workflow installs packages inline; call scripts/linux-deps.sh ($inline_deps)"
 
+  note "== new public surface has a line in the test matrix =="
+  python3 scripts/check-new-tests.py \
+    || bad "a new public function has no case in docs/04-test-design.md"
+
+  note "== invariant cases can fail =="
+  python3 scripts/check-invariants-can-fail.py \
+    || bad "an invariant case cannot fail, so it proves nothing"
+
+  note "== the diff stays inside the declared task scope =="
+  python3 scripts/check-scope.py \
+    || bad "the diff touches files outside docs/.scope-allow"
+
   note "== permissions: probe before tool execution =="
   if ! grep -rn --include='*.rs' 'permission_probe\|PermissionProbe' crates/core/src >/dev/null 2>&1; then
     bad "no PermissionProbe port wired in core"
