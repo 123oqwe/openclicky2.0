@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.0.1
+
+修的是"下载下来跑不起来"，不是新功能。
+
+- **macOS 的 .app 现在自带签名封印。** 2.0.0 的 dmg 和 zip 里的 bundle 都缺 `_CodeSignature`，`codesign --verify` 报 `code has no resources but signature indicates they must be present`。两个归档同病，换解包器无用；构建时补了 ad-hoc 签名。
+- **Info.plist 声明了麦克风用途。** 缺 `NSMicrophoneUsageDescription` 时 macOS 在首次请求麦克风时直接结束进程，用户看到的是"一用就崩"。
+- **`openclicky app` 子命令。** 装完敲它起界面；`--wait` 留在前台。
+- **两个安装脚本都装桌面壳了。** 之前 `openclicky app` 提示"跑安装脚本"，而安装脚本只装 CLI，照着提示做修不好问题。macOS 用 `ditto` 解 zip（不用 unzip，避免 bundle 结构被拆散），Linux 装 AppImage 并写 `.desktop`，Windows 静默跑 NSIS 并 `Unblock-File`。
+- **`--uninstall`** 删掉 CLI、桌面壳与桌面项，并说明怎么连数据一起删。
+- **安装器的资产名从发布 API 取**，不再用 tag 拼。产物名跟的是 crate 版本，tag 与版本不一致时会 404。
+- **发布改用 `gh` 三段式**：建 draft、上传、确认正文后再公开。softprops 会上传时与自己更新资产元数据竞争，2.0.0 因此两次只发出 8/15 个资产。
+- **已公开的 release 不会被重跑覆盖**：`publish` 只对 draft 删重建，遇到公开版本直接 `exit 1`。
+
 ## 2.0.0
 
 第一个公开版本。源码可构建，产物可下载，未签名。
