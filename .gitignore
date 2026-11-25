@@ -13,3 +13,7 @@ coverage/
 /tmp
 .vscode/
 .idea/
+
+# Python bytecode from running the doc scripts
+__pycache__/
+*.pyc
