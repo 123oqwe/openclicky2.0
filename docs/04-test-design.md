@@ -247,6 +247,19 @@
 
 **这五条尚无自动化测试**，只有手工冒烟；G2-WP6 因此不计入通过。
 
+### 12.2 麦克风权限三态（平台层）
+
+麦克风不是布尔。未决定靠系统第一次弹框解决，已拒绝只能去设置里改。这条区别决定界面给哪个按钮，所以它必须被证明，而不是靠读代码。
+
+| 接口 | 断言 | 证据 |
+|---|---|---|
+| `MicrophoneAccess::grants_input` | 只有 `Granted` 算有权限 | `crates/platform/src/permissions.rs::only_granted_counts_as_present` |
+| `MicrophoneAccess::as_str` | 三态序列化成 `not_determined` / `denied` / `granted`，界面据此判断 | 同上 |
+| `missing_microphone` | 未决定与已拒绝都算缺，但两者文案不同 | `::a_microphone_never_asked_is_not_the_same_advice_as_one_refused` |
+| `request_microphone` | 输入流打不开时不得报告为已授予 | `::requesting_the_microphone_reports_whether_the_stream_opened` |
+
+`microphone_access()` 读 `+[AVCaptureDevice authorizationStatusForMediaType:` 的三个返回值，无法离线断言；它的手工验证方式是真机首次运行看到系统弹框，证据记在 #63。
+
 ### 13 性能、容量、稳定性与成本
 
 **负载模型**（写清才能比较）：单用户、串行会话、4K×2 显示器、12s 语音、假 provider 固定延迟 300ms。
