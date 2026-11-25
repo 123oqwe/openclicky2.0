@@ -293,3 +293,13 @@
 
 仍然未修：X4（opt-in 落盘密钥无主密码）、X7 里“屏幕文本”一项不存在（屏幕只以图像进入，工具结果与用户回答已围栏）、D5（外键要重建表）、D10（读写分离）、U9/T2/T3（平台重写）、U3 的截图指画、T1 的应用自有命令 ACL（与 `withGlobalTauri` 绑定）。逐条理由见 `06-acceptance.md` §7。
 
+### 附录 D 的第二批
+
+| 编号 | 状态 | 说明 |
+|---|---|---|
+| T4 的 multipart 一项 | 不适用（等有上传功能再谈） | 仓里没有任何上传工具，`platform/http.rs` 的手写 multipart 只被“上传批准”那条假保护用过。X3 改成默认 Ask 后这段没有调用方，T4 只剩“整体超时”一条，当前用 `timeout_read` 覆盖 |
+| 四个文档脚本在 Windows 上崩 | 已修 | Windows Python 默认 cp1252，打印中文直接抛 `UnicodeEncodeError`；`text=True` 又按 cp1252 解 git 输出。脚本现在各自把 stdout 钉成 utf-8，本地用 `PYTHONIOENCODING=cp1252` 可复现原故障 |
+| G3 第 8 条 迁移与恢复演练 | 已修 | 见 `06-acceptance.md` §7 `migration_drill` 三条；`.db.bak` 改为只在真要迁移时写，只读回退落地 |
+| G3 第 6 条 结论绑定 commit | 已修 | `06-acceptance.md` 原来绑 `feat/impl@81691a6`，与 `feat/f1-onboarding` 上的全部 F1 改动不是同一棵树 |
+| INV-5 的“是否越界”两套判定 | 已修 | 策略用字符串判断、写入器用规范化判断，符号链接指向工作区外时两者不一致。现在同一个函数，且有对拍用例 |
+
