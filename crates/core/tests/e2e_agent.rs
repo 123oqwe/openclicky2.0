@@ -678,3 +678,25 @@ fn an_unreadable_row_still_counts_against_the_queue() {
         "three unreadable rows must not free the queue"
     );
 }
+
+#[test]
+fn an_unreadable_row_can_be_released_so_the_queue_frees_up() {
+    let c = script(vec![tool_call("finish", json!({"result": "done"}))]);
+    for i in 0..3 {
+        let t = c.runner.create(&format!("任务 {i}")).unwrap();
+        let mut row = c.store.task(&t.id).unwrap().unwrap();
+        row.state = "banana".into();
+        c.store.upsert_task(&row).unwrap();
+    }
+    assert!(
+        c.runner.create("第四个").is_err(),
+        "the three rows must hold their slots first"
+    );
+
+    let released = c.runner.recover_interrupted(chrono::Utc::now()).unwrap();
+    assert_eq!(released, 3, "each unreadable row is parked once");
+    assert!(
+        c.runner.create("现在可以了").is_ok(),
+        "a parked row must not keep its slot"
+    );
+}

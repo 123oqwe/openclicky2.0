@@ -950,6 +950,17 @@ impl TaskRunner {
     /// Startup recovery: any running task without a recent heartbeat is paused.
     pub fn recover_interrupted(&self, now: DateTime<Utc>) -> Result<usize> {
         let mut recovered = 0;
+        // A row that will not parse still holds a queue slot, and every other
+        // release path needs `from_row`. Park it here so the queue cannot wedge.
+        for row in self.deps.store.list_tasks(None)? {
+            if from_row(row.clone()).is_ok() {
+                continue;
+            }
+            self.deps
+                .store
+                .park_unreadable(&row.id, "unreadable", now)?;
+            recovered += 1;
+        }
         for row in self.deps.store.list_tasks(Some("running"))? {
             let stale = match row.heartbeat_at {
                 Some(h) => now.signed_duration_since(h) > Duration::minutes(20),
