@@ -34,10 +34,13 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            cp target/release/openclicky.exe dist/ || true
+          # The three CLI builds all produce "openclicky", and the publish job
+          # flattens the artifacts, so the name has to carry the platform.
+          suffix=$(echo "${RUNNER_OS}" | tr '[:upper:]' '[:lower:]')
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            cp target/release/openclicky.exe "dist/openclicky-${suffix}.exe"
           else
-            cp target/release/openclicky dist/
+            cp target/release/openclicky "dist/openclicky-${suffix}"
           fi
           # Provenance per platform: a flat download would otherwise have three
           # files called COMMIT that overwrite each other.
@@ -45,10 +48,10 @@ jobs:
             git rev-parse HEAD
             git describe --tags --always
           } > "dist/COMMIT-${{ matrix.artifact }}"
-          for f in dist/*; do
-            case "$f" in *".sha256") continue;; esac
-            sha256sum "$f" > "$f.sha256"
-          done
+          ( cd dist && for f in *; do
+              case "$f" in *".sha256") continue;; esac
+              sha256sum "$f" > "$f.sha256"
+            done )
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
@@ -101,10 +104,10 @@ jobs:
             git rev-parse HEAD
             git describe --tags --always
           } > "dist/COMMIT-${{ matrix.artifact }}"
-          for f in dist/*; do
-            case "$f" in *".sha256") continue;; esac
-            sha256sum "$f" > "$f.sha256"
-          done
+          ( cd dist && for f in *; do
+              case "$f" in *".sha256") continue;; esac
+              sha256sum "$f" > "$f.sha256"
+            done )
           ls -la dist
           if [ "$copied" -eq 0 ]; then
             echo "::error::no installer was produced for ${{ matrix.os }}; a green job with an empty artifact is worse than a red one"
@@ -220,6 +223,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
