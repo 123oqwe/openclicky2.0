@@ -484,11 +484,22 @@ impl HttpTransport for ScriptedHttp {
     }
 }
 
-#[derive(Default)]
 pub struct FakeProbe {
     pub accessibility: std::sync::atomic::AtomicBool,
     pub screen: std::sync::atomic::AtomicBool,
-    pub microphone: std::sync::atomic::AtomicBool,
+    pub microphone: std::sync::Mutex<openclicky_core::ports::MicrophoneAccess>,
+}
+
+impl Default for FakeProbe {
+    /// A fake that has not been told otherwise permits everything, so a test
+    /// that forgets to configure permissions tests the feature, not the gate.
+    fn default() -> Self {
+        Self {
+            accessibility: Default::default(),
+            screen: Default::default(),
+            microphone: std::sync::Mutex::new(openclicky_core::ports::MicrophoneAccess::Granted),
+        }
+    }
 }
 
 impl FakeProbe {
@@ -497,7 +508,7 @@ impl FakeProbe {
         std::sync::Arc::new(Self {
             accessibility: AtomicBool::new(true),
             screen: AtomicBool::new(true),
-            microphone: AtomicBool::new(true),
+            microphone: std::sync::Mutex::new(openclicky_core::ports::MicrophoneAccess::Granted),
         })
     }
     pub fn deny_accessibility(&self) {
@@ -513,8 +524,8 @@ impl PermissionProbe for FakeProbe {
     fn accessibility(&self) -> bool {
         self.accessibility.load(std::sync::atomic::Ordering::SeqCst)
     }
-    fn microphone(&self) -> bool {
-        self.microphone.load(std::sync::atomic::Ordering::SeqCst)
+    fn microphone(&self) -> openclicky_core::ports::MicrophoneAccess {
+        *self.microphone.lock().unwrap()
     }
 }
 

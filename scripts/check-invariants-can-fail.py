@@ -48,6 +48,7 @@ def run(test_filter):
         cwd=ROOT,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
 
 

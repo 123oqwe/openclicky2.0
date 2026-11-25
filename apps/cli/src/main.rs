@@ -395,6 +395,7 @@ fn doctor(app: &App, online: bool) -> anyhow::Result<()> {
         "accessibility:    {}",
         if perms.accessibility { "ok" } else { "missing" }
     );
+    println!("microphone:       {}", perms.microphone.as_str());
     for hint in permissions::missing_guidance(perms) {
         println!("  -> {hint}");
     }
