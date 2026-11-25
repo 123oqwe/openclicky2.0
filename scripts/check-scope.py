@@ -20,27 +20,43 @@ ALLOW = ROOT / "docs" / ".scope-allow"
 
 
 def git(*args):
+    """stdout, or None when the command failed.
+
+    Returning "" made a failed command look like an empty diff, and an empty diff
+    is inside every scope. That is the same false pass this rule exists to stop.
+    """
     out = subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True)
-    return out.stdout if out.returncode == 0 else ""
+    return out.stdout if out.returncode == 0 else None
 
 
 def changed_files():
-    base = git("merge-base", "origin/main", "HEAD").strip() or "HEAD~1"
-    return [line for line in git("diff", "--name-only", f"{base}...HEAD").splitlines() if line]
+    base = (git("merge-base", "origin/main", "HEAD") or "").strip()
+    if not base:
+        raise SystemExit(
+            "cannot find the merge base with origin/main, so the diff is unknown. "
+            "Fetch origin/main, then re-run. An unknown diff is not an empty diff."
+        )
+    diff = git("diff", "--name-only", f"{base}...HEAD")
+    if diff is None:
+        raise SystemExit(f"git diff against {base[:7]} failed; the diff is unknown")
+    return [line for line in diff.splitlines() if line]
 
 
 def main(argv):
-    files = changed_files()
     if "--write" in argv:
+        files = changed_files()
         prefixes = sorted({pathlib.PurePosixPath(f).parts[0] for f in files})
         ALLOW.write_text("\n".join(prefixes) + "\n", encoding="utf-8")
         print(f"scope recorded: {', '.join(prefixes)}")
         return 0
 
     if not ALLOW.exists():
+        # Nothing is declared, so there is nothing to compare against. Reading
+        # the diff here would fail on a shallow clone for no reason.
         print("scope: no task declared, nothing to check")
         return 0
 
+    files = changed_files()
     allowed = [
         line.strip()
         for line in ALLOW.read_text(encoding="utf-8").splitlines()
