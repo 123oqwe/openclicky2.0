@@ -22,7 +22,9 @@ Windows, in PowerShell:
 irm https://raw.githubusercontent.com/123oqwe/openclicky2.0/main/scripts/install.ps1 | iex
 ```
 
-That puts an `openclicky` command on your PATH. Where the release carries a desktop shell
+That installs `openclicky` into `~/.local/bin`. On a fresh macOS that directory is not on
+your PATH yet, so the script prints the one line that adds it and you paste it once.
+Where the release carries a desktop shell
 for your machine, the script installs it too: `OpenClicky.app` on macOS, the AppImage plus a
 menu entry on Linux. On Windows it installs the CLI only, so take the
 `OpenClicky_*_x64-setup.exe` asset from the
