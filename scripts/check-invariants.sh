@@ -137,6 +137,21 @@ if [ "$has_code" -eq 1 ]; then
   if ! grep -rn --include='*.rs' 'permission_probe\|PermissionProbe' crates/core/src >/dev/null 2>&1; then
     bad "no PermissionProbe port wired in core"
   fi
+
+  note "== macos: the bundle declares audio input, or TCC refuses to prompt =="
+  # A probing code path is not enough. Without the entitlement, macOS answers
+  # every microphone request by refusing, and no amount of UI can fix that.
+  entitlements_ref=$(python3 -c 'import json;print(json.load(open("apps/desktop/tauri.conf.json")).get("bundle",{}).get("macOS",{}).get("entitlements",""))' 2>/dev/null || true)
+  if [ -z "$entitlements_ref" ]; then
+    bad "apps/desktop/tauri.conf.json declares no bundle.macOS.entitlements"
+  else
+    entitlements_path="apps/desktop/$entitlements_ref"
+    if [ ! -f "$entitlements_path" ]; then
+      bad "bundle.macOS.entitlements points at $entitlements_path, which does not exist"
+    elif ! grep -q 'com.apple.security.device.audio-input' "$entitlements_path"; then
+      bad "$entitlements_path does not grant com.apple.security.device.audio-input"
+    fi
+  fi
 else
   note "== code invariants skipped: no Cargo.toml in this tree =="
 fi

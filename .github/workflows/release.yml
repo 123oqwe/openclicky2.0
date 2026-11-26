@@ -111,7 +111,15 @@ jobs:
             echo "::error::Info.plist has no NSMicrophoneUsageDescription; macOS kills the process on the first microphone request"
             exit 1
           }
-          echo "bundle seal and microphone usage string are both present"
+          # The usage string makes macOS willing to ask. The entitlement is what
+          # it grants when the user says yes. Without it the request is refused
+          # before any dialog appears, so the app can never be given the mic.
+          codesign -d --entitlements :- "$app" 2>/dev/null \
+            | grep -q "com.apple.security.device.audio-input" || {
+            echo "::error::the bundle signs without audio-input, so macOS will refuse to prompt for the microphone"
+            exit 1
+          }
+          echo "bundle seal, microphone usage string and audio-input entitlement are all present"
 
       - name: Collect artifacts
         shell: bash
