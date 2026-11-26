@@ -33,6 +33,10 @@ jobs:
       # This rides the required check on purpose. A separate job could be green
       # or missing while the merge gate stayed satisfied, which is the failure
       # mode this rule exists to stop. Only a pull request has a body to read.
+      # The guard has to prove it can match before it is trusted with a body: the
+      # first version knew three of GitHub's nine keyword forms.
+      - name: The close guard still matches every keyword GitHub accepts
+        run: bash scripts/check-close-evidence.sh --self-test
       - name: Closing an issue needs evidence in the issue
         if: github.event_name == 'pull_request'
         env:
