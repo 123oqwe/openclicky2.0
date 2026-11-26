@@ -290,10 +290,26 @@ const T = window.__TAURI__;
 
     let hasMissingPerms = true;
 
+    // Rebuilding these rows on a timer replaces the buttons under the user's
+    // pointer, which loses the click and the focus. Redraw only when the state
+    // the panel shows actually changed.
+    let lastPermissionKey = null;
+    let permissionProbeInFlight = false;
+
+    function permissionKey(p) {
+      return [p.screen_recording, p.accessibility, p.microphone, (p.guidance || []).join('|')]
+        .join('/');
+    }
+
     async function refreshPermissions() {
-      const p = await invoke('permissions');
-      const host = $('perms');
-      host.textContent = '';
+      if (permissionProbeInFlight) return null;
+      permissionProbeInFlight = true;
+      let p;
+      try {
+        p = await invoke('permissions');
+      } finally {
+        permissionProbeInFlight = false;
+      }
       const items = [
         ['screen_recording', '屏幕录制'],
         ['accessibility', '辅助功能'],
@@ -305,14 +321,18 @@ const T = window.__TAURI__;
       const missing = items.filter(([k]) => !present(k, p[k]));
       hasMissingPerms = missing.length > 0;
       $('permStep').hidden = missing.length === 0;
+
+      const key = permissionKey(p);
+      if (key === lastPermissionKey) return p;
+      lastPermissionKey = key;
+
+      const host = $('perms');
+      host.textContent = '';
       for (const [k, label] of missing) {
         const row = el('div', { class: 'row' });
         row.append(el('span', { class: 'pill rec', text: `缺 ${label}` }));
         const askNow = k === 'microphone' && p[k] === 'not_determined';
-        row.append(
-          act(askNow ? '请求麦克风授权' : '打开系统设置',
-              () => invoke('request_permission', { kind: k }))
-        );
+        row.append(permissionButton(askNow ? '请求麦克风授权' : '打开系统设置', k));
         host.append(row);
       }
       const guide = $('permGuide');
@@ -324,6 +344,45 @@ const T = window.__TAURI__;
     $('recheckPerm').onclick = async () => {
       try { await refreshPermissions(); await refresh(); } catch (e) { showError(e); }
     };
+
+    // act() re-enables its button as soon as the handler resolves. That is wrong
+    // here, because a prompt is still on screen when the handler returns, so the
+    // permission row owns its own enabled state.
+    function permissionButton(label, kind) {
+      const b = el('button', { text: label });
+      b.onclick = () => askPermission(kind, b, label);
+      return b;
+    }
+
+    // The outcome is what the request produced, not the state it produced it in.
+    // A system prompt is answered later, so the button says a prompt is waiting
+    // and the poll above takes over from there. Leaving it live would let a
+    // second click open a second input stream before the first one returned.
+    async function askPermission(kind, btn) {
+      const label = btn ? btn.textContent : '';
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = '已向系统请求…';
+      }
+      try {
+        const r = await invoke('request_permission', { kind });
+        const outcome = (r && r.outcome) || 'unknown';
+        if (btn && outcome === 'prompted') {
+          btn.textContent = '已向系统请求，请在弹框里允许';
+        } else if (btn) {
+          btn.disabled = false;
+          btn.textContent = label;
+        }
+      } catch (e) {
+        showError(e);
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = label;
+        }
+      }
+      await pollPermissions();
+      await refresh();
+    }
 
     $('fetch').onclick = async () => {
       $('fetchMsg').textContent = '正在连接…';
@@ -457,7 +516,19 @@ const T = window.__TAURI__;
       $('answer').className = '';
     });
 
+    // The permission rows only settle when the user answers a system prompt, so
+    // one probe at start-up cannot see the answer. Poll while something is
+    // missing and stop as soon as nothing is, because the promise on screen is
+    // "come back here and it will have refreshed".
+    async function pollPermissions() {
+      if (hasMissingPerms) {
+        try { await refreshPermissions(); } catch (e) {
+          notice({ code: 'E_PERMISSIONS', message: String(e) });
+        }
+      }
+    }
+
     refreshPermissions()
       .catch((e) => notice({ code: 'E_PERMISSIONS', message: String(e) }))
       .finally(() => refresh());
-    setInterval(refresh, 2000);
+    setInterval(() => { pollPermissions().finally(refresh); }, 2000);
