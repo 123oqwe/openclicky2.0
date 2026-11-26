@@ -795,6 +795,17 @@ fn main() {
             if let Some(overlay) = app.get_webview_window("overlay") {
                 let _ = overlay.set_ignore_cursor_events(true);
                 let _ = overlay.set_always_on_top(true);
+                // `fullscreen: true` ran a native fullscreen transition during
+                // start-up and left the window out of the window list entirely:
+                // bounds and alpha were right, `onscreen` was false, and the
+                // canvas never reached the display. Covering the monitor by hand
+                // gets the same geometry without the transition.
+                if let Ok(Some(monitor)) = overlay.primary_monitor() {
+                    let size = monitor.size();
+                    let origin = monitor.position();
+                    let _ = overlay.set_position(tauri::PhysicalPosition::new(origin.x, origin.y));
+                    let _ = overlay.set_size(tauri::PhysicalSize::new(size.width, size.height));
+                }
                 // Measured with a CGWindowList sampler: the level goes 0, then 5
                 // when it is set here, then back to 0 about 20ms after this
                 // window's first resize burst at start-up, and nothing touches it
