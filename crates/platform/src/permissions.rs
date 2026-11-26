@@ -108,6 +108,79 @@ pub fn request_microphone(audio: &dyn openclicky_core::ports::AudioSource) -> bo
     audio.stop().is_ok()
 }
 
+/// What asking for a permission can result in. A prompt is asynchronous, so the
+/// caller renders this instead of re-probing: a probe taken while the dialog is
+/// still on screen reports the state from before it was asked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PermissionOutcome {
+    Prompted,
+    OpenedSettings,
+    AlreadyGranted,
+    Unknown,
+}
+
+impl PermissionOutcome {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Prompted => "prompted",
+            Self::OpenedSettings => "opened_settings",
+            Self::AlreadyGranted => "already_granted",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+/// The decision, with no side effects, so it can be checked without opening a
+/// settings window on the test machine.
+pub fn plan_request(kind: &str, state: PermissionState) -> PermissionOutcome {
+    match kind {
+        "screen_recording" if state.screen_recording => PermissionOutcome::AlreadyGranted,
+        "screen_recording" => PermissionOutcome::Prompted,
+        "accessibility" if state.accessibility => PermissionOutcome::AlreadyGranted,
+        "accessibility" => PermissionOutcome::OpenedSettings,
+        // A refusal cannot be undone by asking again. Only the settings row can.
+        "microphone" => match state.microphone {
+            MicrophoneAccess::Granted => PermissionOutcome::AlreadyGranted,
+            MicrophoneAccess::Denied => PermissionOutcome::OpenedSettings,
+            MicrophoneAccess::NotDetermined => PermissionOutcome::Prompted,
+        },
+        _ => PermissionOutcome::Unknown,
+    }
+}
+
+pub fn request(kind: &str, audio: &dyn openclicky_core::ports::AudioSource) -> PermissionOutcome {
+    let outcome = plan_request(kind, probe());
+    match (kind, outcome) {
+        ("screen_recording", PermissionOutcome::Prompted) => {
+            request_screen_recording();
+        }
+        ("microphone", PermissionOutcome::Prompted) => {
+            request_microphone(audio);
+        }
+        ("accessibility", PermissionOutcome::OpenedSettings) => {
+            open_settings("Privacy_Accessibility")
+        }
+        ("microphone", PermissionOutcome::OpenedSettings) => open_settings("Privacy_Microphone"),
+        _ => {}
+    }
+    outcome
+}
+
+fn open_settings(anchor: &str) {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open")
+            .arg(format!(
+                "x-apple.systempreferences:com.apple.preference.security?{anchor}"
+            ))
+            .spawn();
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = anchor;
+    }
+}
+
 pub fn missing_microphone(state: MicrophoneAccess) -> bool {
     !state.grants_input()
 }
@@ -215,6 +288,53 @@ mod tests {
             !request_microphone(&FakeAudio { opens: false }),
             "a refused stream must not be reported as a granted microphone"
         );
+    }
+
+    #[test]
+    fn each_state_of_the_microphone_leads_to_the_right_action() {
+        assert_eq!(
+            plan_request("microphone", state(MicrophoneAccess::NotDetermined)),
+            PermissionOutcome::Prompted,
+            "a first run must raise the system prompt"
+        );
+        assert_eq!(
+            plan_request("microphone", state(MicrophoneAccess::Denied)),
+            PermissionOutcome::OpenedSettings,
+            "asking again after a refusal shows nothing"
+        );
+        assert_eq!(
+            plan_request("microphone", state(MicrophoneAccess::Granted)),
+            PermissionOutcome::AlreadyGranted
+        );
+    }
+
+    #[test]
+    fn an_unknown_permission_name_is_not_treated_as_handled() {
+        assert_eq!(
+            plan_request("teleportation", state(MicrophoneAccess::Granted)),
+            PermissionOutcome::Unknown
+        );
+        assert_eq!(PermissionOutcome::Unknown.as_str(), "unknown");
+    }
+
+    #[test]
+    fn permission_outcomes_serialise_to_the_strings_the_window_reads() {
+        assert_eq!(PermissionOutcome::Prompted.as_str(), "prompted");
+        assert_eq!(
+            PermissionOutcome::OpenedSettings.as_str(),
+            "opened_settings"
+        );
+        assert_eq!(
+            PermissionOutcome::AlreadyGranted.as_str(),
+            "already_granted"
+        );
+    }
+
+    #[test]
+    fn the_three_microphone_states_keep_their_wire_names() {
+        assert_eq!(MicrophoneAccess::NotDetermined.as_str(), "not_determined");
+        assert_eq!(MicrophoneAccess::Denied.as_str(), "denied");
+        assert_eq!(MicrophoneAccess::Granted.as_str(), "granted");
     }
 
     #[test]

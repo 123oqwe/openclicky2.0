@@ -257,6 +257,10 @@
 | `MicrophoneAccess::as_str` | 三态序列化成 `not_determined` / `denied` / `granted`，界面据此判断 | 同上 |
 | `missing_microphone` | 未决定与已拒绝都算缺，但两者文案不同 | `::a_microphone_never_asked_is_not_the_same_advice_as_one_refused` |
 | `request_microphone` | 输入流打不开时不得报告为已授予 | `::requesting_the_microphone_reports_whether_the_stream_opened` |
+| `plan_request` | 未决定给弹框、已拒绝给设置、已授予不动作、未知名字不算处理过 | `crates/platform/src/permissions.rs::each_state_of_the_microphone_leads_to_the_right_action`、`::an_unknown_permission_name_is_not_treated_as_handled` |
+| `request` | 决策与副作用分开，决策可离线断言 | 同上（`plan_request` 是被测的那一半） |
+| `PermissionOutcome::as_str` | 三种结果序列化成窗口读的字符串 | `::permission_outcomes_serialise_to_the_strings_the_window_reads` |
+| `MicrophoneAccess::as_str` | `not_determined` / `denied` / `granted` 三个字面量 | `::the_three_microphone_states_keep_their_wire_names` |
 
 `microphone_access()` 读 `+[AVCaptureDevice authorizationStatusForMediaType:` 的三个返回值，无法离线断言；它的手工验证方式是真机首次运行看到系统弹框，证据记在 #63。
 
