@@ -10,7 +10,9 @@ use openclicky_core::agent::runner::{self, AgentDeps, CancelToken};
 use openclicky_core::agent::{Checkpoint, TaskRunner};
 use openclicky_core::config::Config;
 use openclicky_core::deps::Deps;
+use openclicky_core::dictation::DictationEngine;
 use openclicky_core::geom::PointerPlan;
+use openclicky_core::hotkey::{Binding, Gesture, Modifier};
 use openclicky_core::memory::Memory;
 use openclicky_core::ports::*;
 use openclicky_core::privacy::CaptureReason;
@@ -94,6 +96,13 @@ struct AppState {
     /// One cancel flag per live task run. Without this `cancel_task` has nothing
     /// to signal, because every run used to build its own token.
     cancels: Arc<Mutex<HashMap<String, Arc<CancelToken>>>>,
+    dictation: Arc<DictationEngine>,
+    /// Needed to replace a global shortcut when the config changes; a command
+    /// only holds its own state.
+    app: tauri::AppHandle,
+    /// The dictation shortcut that is registered right now, so a save can take
+    /// it back before installing the new one.
+    dictation_shortcut: Arc<Mutex<Option<Shortcut>>>,
 }
 
 #[derive(serde::Serialize)]
@@ -228,7 +237,8 @@ fn build_state(
         config.read().unwrap().clone(),
         events.clone(),
     );
-    let engine = Arc::from(VoiceEngine::new(deps));
+    let engine = Arc::from(VoiceEngine::new(deps.clone()));
+    let dictation = Arc::from(DictationEngine::new(deps));
 
     let clock: Arc<dyn Clock> = Arc::from(openclicky_core::clock::SystemClock);
     let cfg = config.read().unwrap().clone();
@@ -276,6 +286,9 @@ fn build_state(
         paths,
         tools,
         cancels: Arc::from(Mutex::new(HashMap::new())),
+        dictation,
+        app: app.clone(),
+        dictation_shortcut: Arc::from(Mutex::new(None)),
     })
 }
 
@@ -334,7 +347,43 @@ fn save_provider(
     )
     .map_err(|e| format!("{} ({}) — {}", e.user_message(), e.code(), target))?;
     *state.config.write().unwrap() = cfg;
+    reregister_dictation(&state, &model);
     Ok(())
+}
+
+/// The config file is the source of truth for shortcuts, so a save has to take
+/// effect without a restart. Re-registering is best effort: a binding the
+/// system refuses leaves the previous one unbound rather than failing the save,
+/// which has already happened by the time this runs.
+fn reregister_dictation(state: &AppState, _saved_model: &str) {
+    let requested = state.config.read().unwrap().shortcuts.dictation.clone();
+    let previous = *state.dictation_shortcut.lock().unwrap();
+    let Some(shortcut) = previous else { return };
+    if shortcut.to_string().eq_ignore_ascii_case(&requested) {
+        return;
+    }
+    let (maybe_next, fell_back) = dictation_shortcut(&requested);
+    let Some(next) = maybe_next else { return };
+    if next == shortcut {
+        return;
+    }
+    let _ = state.app.global_shortcut().unregister(shortcut);
+    match install_dictation_shortcut(&state.app, next, state.dictation.clone()) {
+        Ok(()) => {
+            *state.dictation_shortcut.lock().unwrap() = Some(next);
+            if fell_back {
+                let _ = state.app.emit(
+                    "error",
+                    format!("听写键 {requested} 系统不认，已改用 {DICTATION_FALLBACK}。"),
+                );
+            }
+        }
+        Err(e) => {
+            let _ = state
+                .app
+                .emit("error", format!("听写键改成 {requested} 失败：{e}"));
+        }
+    }
 }
 
 #[tauri::command]
@@ -486,6 +535,91 @@ fn allow_file_store(state: TauriState<'_, AppState>) -> Result<(), String> {
         .map_err(|e| e.user_message())
 }
 
+/// Tauri's own parser cannot express everything core can, and the default
+/// dictation binding `fn+control` is the first example: `fn` is not a modifier
+/// Tauri knows. Translate the parsed binding into a string Tauri accepts, and
+/// answer `None` when the shape cannot be expressed, so the caller can degrade
+/// instead of failing to start.
+fn tauri_binding(binding: &Binding) -> Option<String> {
+    if binding.gesture == Gesture::DoubleTap || binding.key.is_empty() {
+        return None;
+    }
+    let mut parts: Vec<&str> = Vec::new();
+    for modifier in &binding.modifiers {
+        parts.push(match modifier {
+            Modifier::Control => "ctrl",
+            Modifier::Alt => "alt",
+            Modifier::Shift => "shift",
+            Modifier::Meta => "super",
+            Modifier::Fn => return None,
+        });
+    }
+    parts.push(binding.key.as_str());
+    Some(parts.join("+"))
+}
+
+const DICTATION_FALLBACK: &str = "ctrl+alt+d";
+
+/// The shortcut to register and whether it is the fallback. Never fails: an
+/// unparseable config must not stop the app from starting.
+fn dictation_shortcut(spec: &str) -> (Option<Shortcut>, bool) {
+    if let Some(text) = Binding::parse(spec).ok().as_ref().and_then(tauri_binding) {
+        if let Ok(shortcut) = text.parse::<Shortcut>() {
+            return (Some(shortcut), false);
+        }
+    }
+    (DICTATION_FALLBACK.parse::<Shortcut>().ok(), true)
+}
+
+/// Press and hold to dictate. The ticker stops on release, and also when the
+/// budget runs out, because a blocked engine would otherwise keep transcribing.
+fn install_dictation_shortcut(
+    app: &tauri::AppHandle,
+    shortcut: Shortcut,
+    dictation: Arc<DictationEngine>,
+) -> Result<(), String> {
+    let held = Arc::from(AtomicBool::new(false));
+    let release_held = held.clone();
+    let release_dictation = dictation.clone();
+    app.global_shortcut()
+        .on_shortcut(shortcut, move |app, _s, event| match event.state() {
+            ShortcutState::Pressed => {
+                if let Err(e) = dictation.start() {
+                    let _ = app.emit("error", e.user_message());
+                    return;
+                }
+                held.store(true, Ordering::SeqCst);
+                let flag = held.clone();
+                let ticker = dictation.clone();
+                let handle = app.clone();
+                std::thread::spawn(move || {
+                    while flag.load(Ordering::SeqCst) {
+                        std::thread::sleep(std::time::Duration::from_millis(700));
+                        if !flag.load(Ordering::SeqCst) {
+                            break;
+                        }
+                        if let Err(e) = ticker.tick() {
+                            flag.store(false, Ordering::SeqCst);
+                            let _ = handle.emit("error", e.user_message());
+                        }
+                    }
+                });
+            }
+            ShortcutState::Released => {
+                release_held.store(false, Ordering::SeqCst);
+                match release_dictation.finish() {
+                    // A tap too short to contain a word is not an error worth
+                    // showing; anything else is.
+                    Err(openclicky_core::Error::TooShort) | Ok(_) => {}
+                    Err(e) => {
+                        let _ = app.emit("error", e.user_message());
+                    }
+                }
+            }
+        })
+        .map_err(|e| e.to_string())
+}
+
 fn reveal_main(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -560,6 +694,9 @@ fn main() {
                 .map_err(|e| format!("startup: {e}"))?;
             let engine = state.engine.clone();
             let tasks = state.runner.clone();
+            let dictation = state.dictation.clone();
+            let registered_dictation = state.dictation_shortcut.clone();
+            let config = state.config.clone();
             app.manage(state);
 
             // A task left `running` by a crash has no live heartbeat; a task that
@@ -572,6 +709,35 @@ fn main() {
                 std::thread::sleep(std::time::Duration::from_secs(600));
                 let _ = watchdog.expire_stale_waiting(chrono::Utc::now());
             });
+
+            // Dictation is registered before the tray for the same reason the
+            // tray is optional: a shortcut that cannot be bound is a degraded
+            // feature, not a failed start. No `?` on this path.
+            let requested = config
+                .read()
+                .unwrap()
+                .shortcuts
+                .dictation
+                .clone();
+            let (maybe_shortcut, fell_back) = dictation_shortcut(&requested);
+            if let Some(shortcut) = maybe_shortcut {
+                match install_dictation_shortcut(app.handle(), shortcut, dictation.clone()) {
+                    Ok(()) => {
+                        *registered_dictation.lock().unwrap() = Some(shortcut);
+                        if fell_back {
+                            let _ = app.emit(
+                                "error",
+                                format!(
+                                    "听写键 {requested} 系统不认，已改用 {DICTATION_FALLBACK}。可在配置里改成别的组合。"
+                                ),
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        let _ = app.emit("error", format!("听写键注册失败：{e}"));
+                    }
+                }
+            }
 
             // A missing tray cannot be fatal: the recall hotkey below works on
             // every platform and is the contract, the tray is the discoverable path.
@@ -678,4 +844,35 @@ fn main() {
             }
             let _ = (app, event);
         });
+}
+
+#[cfg(test)]
+mod shortcut_tests {
+    use super::*;
+
+    #[test]
+    fn the_default_dictation_binding_falls_back_because_tauri_has_no_fn() {
+        let (shortcut, fell_back) = dictation_shortcut("fn+control");
+        assert!(fell_back, "fn cannot be expressed, so this must degrade");
+        assert_eq!(shortcut, DICTATION_FALLBACK.parse::<Shortcut>().ok());
+    }
+
+    #[test]
+    fn a_binding_tauri_can_express_is_used_as_written() {
+        let (shortcut, fell_back) = dictation_shortcut("ctrl+alt+d");
+        assert!(!fell_back);
+        assert!(shortcut.is_some());
+    }
+
+    #[test]
+    fn a_double_tap_gesture_is_not_a_global_shortcut() {
+        let binding = Binding::parse("double:ctrl+k").unwrap();
+        assert_eq!(tauri_binding(&binding), None);
+    }
+
+    #[test]
+    fn modifiers_are_translated_to_the_names_tauri_parses() {
+        let binding = Binding::parse("cmd+shift+k").unwrap();
+        assert_eq!(tauri_binding(&binding).as_deref(), Some("super+shift+k"));
+    }
 }
