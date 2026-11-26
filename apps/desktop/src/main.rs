@@ -207,7 +207,7 @@ fn build_state(
     let config = Config::load(&paths.config_file())?;
     // Reported, not enforced: a config with a missing model still starts, and the
     // banner is how the user finds out why nothing works.
-    let issues = config.validate();
+    let issues = config_issues(&paths.config_file(), &config);
     let secrets = openclicky_platform::open_secrets(&paths.data_dir);
     let store = Arc::from(Store::open(&paths.db_file())?);
     let http: Arc<dyn HttpTransport> = Arc::from(UreqTransport::default());
@@ -353,9 +353,28 @@ fn reload_from_disk(path: &Path, config: &mut Config) -> Vec<String> {
     match Config::load(path) {
         Ok(next) => {
             *config = next;
-            config.validate()
+            config_issues(path, config)
         }
         Err(e) => vec![format!("配置读不了：{}", e.user_message())],
+    }
+}
+
+/// What is wrong with the file at `path`, given the config it produced.
+///
+/// A machine that has never been configured has no file, and `Config::load`
+/// answers with the default, whose empty `chat_model` fails validation. Reporting
+/// that would put a banner above the first-run card saying the same thing, on a
+/// first launch that has done nothing wrong. The banner is for a file that exists
+/// and is wrong.
+///
+/// Decided from the file's existence rather than from whether the first-run card
+/// is showing: two states that depend on each other are two states that can
+/// disagree.
+fn config_issues(path: &Path, config: &Config) -> Vec<String> {
+    if path.exists() {
+        config.validate()
+    } else {
+        Vec::new()
     }
 }
 
@@ -967,6 +986,26 @@ mod config_issue_tests {
         assert!(
             running.provider.base_url.starts_with("http"),
             "reloading has to hand back what is on disk, not what was in memory"
+        );
+        cleanup(&path);
+    }
+
+    #[test]
+    fn a_first_run_with_no_config_file_shows_no_banner() {
+        let path = scratch("first-run");
+        let mut running = Config::default();
+
+        let issues = reload_from_disk(&path, &mut running);
+        assert!(
+            issues.is_empty(),
+            "nothing is configured yet, and the first-run card already says so: {issues:?}"
+        );
+
+        Config::default().save(&path).unwrap();
+        let issues = reload_from_disk(&path, &mut running);
+        assert!(
+            issues.iter().any(|i| i.contains("模型")),
+            "once the file is there, the missing model is the file's problem: {issues:?}"
         );
         cleanup(&path);
     }
