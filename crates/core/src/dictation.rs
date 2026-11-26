@@ -8,6 +8,7 @@ use chrono::Utc;
 use crate::deps::Deps;
 use crate::error::{Error, Result};
 use crate::ports::{InjectOutcome, TargetInfo, TargetKind};
+use crate::text::{cleanup, terminal_safe};
 use crate::AppEvent;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,36 +43,6 @@ pub fn apply_dictionary(text: &str, dict: &[(String, String)]) -> String {
         out = out.replace(heard.as_str(), corrected);
     }
     out
-}
-
-/// Terminal safety: never inject anything that could run as a command.
-pub fn terminal_safe(text: &str) -> String {
-    let flat: String = text
-        .chars()
-        .map(|c| if c == '\n' || c == '\r' { ' ' } else { c })
-        .collect();
-    flat.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-/// Conservative cleanup: fix obvious spacing, never add facts or dashes.
-pub fn cleanup(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for c in text.chars() {
-        if c == '\u{2014}' || c == '\u{2013}' {
-            out.push(' ');
-            continue;
-        }
-        out.push(c);
-    }
-    let collapsed = out.split_whitespace().collect::<Vec<_>>().join(" ");
-    if collapsed.is_empty() {
-        return collapsed;
-    }
-    let mut chars: Vec<char> = collapsed.chars().collect();
-    if let Some(first) = chars.first_mut() {
-        *first = first.to_uppercase().next().unwrap_or(*first);
-    }
-    chars.into_iter().collect()
 }
 
 pub fn looks_secret(text: &str) -> bool {

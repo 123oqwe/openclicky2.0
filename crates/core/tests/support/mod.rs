@@ -377,6 +377,7 @@ impl PointerOverlay for FakeOverlay {
 #[derive(Default)]
 pub struct FakeInjector {
     pub injected: Mutex<Vec<(String, String)>>,
+    pub copied: Mutex<Vec<String>>,
     pub target: Mutex<Option<TargetInfo>>,
 }
 
@@ -384,9 +385,13 @@ impl FakeInjector {
     pub fn new() -> Arc<Self> {
         Arc::new(Self::default())
     }
+    pub fn copied(&self) -> Vec<String> {
+        self.copied.lock().unwrap().clone()
+    }
     pub fn with_target(target: TargetInfo) -> Arc<Self> {
         Arc::new(Self {
             injected: Mutex::new(Vec::new()),
+            copied: Mutex::new(Vec::new()),
             target: Mutex::new(Some(target)),
         })
     }
@@ -410,6 +415,10 @@ impl TextInjector for FakeInjector {
             .unwrap()
             .push((text.to_string(), target.app.clone()));
         Ok(InjectOutcome::Typed)
+    }
+    fn copy(&self, text: &str) -> Result<InjectOutcome> {
+        self.copied.lock().unwrap().push(text.to_string());
+        Ok(InjectOutcome::CopiedOnly)
     }
 }
 
