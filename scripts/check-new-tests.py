@@ -40,7 +40,20 @@ def head():
 
 
 def new_public_fns(base):
-    diff = git("diff", f"{base}...HEAD", "-U0", "--", "crates", "apps")
+    # Test helpers are not public surface. A reader of the matrix is told which
+    # case proves which promise; a `pub fn` on a fake exists to serve the tests,
+    # and demanding a row for one asks the wrong person the wrong question. The
+    # first version of this rule counted them, and blocked a PR whose only
+    # "new public function" was a getter on a test double.
+    diff = git(
+        "diff",
+        f"{base}...HEAD",
+        "-U0",
+        "--",
+        "crates",
+        "apps",
+        ":(exclude)*/tests/*",
+    )
     if diff is None:
         raise SystemExit(
             f"cannot compare against {base[:7]}: this clone has no merge base "
