@@ -41,7 +41,7 @@ const T = window.__TAURI__;
       while (host.childElementCount > 5) host.lastElementChild.remove();
     }
 
-    // 配置校验报几条就列几条。每 2 秒的轮询会在指针底下重建列表，所以只在内容真的变了才重画。
+    // 每 2 秒的轮询会在指针底下重建列表，所以内容没变就不重画。
     let lastIssuesKey = null;
     function renderIssues(issues) {
       const list = issues || [];
