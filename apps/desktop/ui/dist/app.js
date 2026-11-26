@@ -400,8 +400,11 @@ const T = window.__TAURI__;
     };
 
     async function saveProvider() {
-      await invoke('save_provider', { key: $('key').value, model: $('models').value });
+      const model = $('models').value;
+      await invoke('save_provider', { key: $('key').value, model });
       $('key').value = '';
+      // The card disappearing is the only other signal, and it is easy to miss.
+      $('fetchMsg').textContent = `已验证 ${model}，可以直接提问`;
       await refresh();
     }
 
