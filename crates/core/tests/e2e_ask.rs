@@ -508,3 +508,25 @@ fn a_pointer_with_no_strokes_gets_the_same_life() {
         "a text-only plan is not a special case"
     );
 }
+
+#[test]
+fn a_typed_answer_ends_the_pointer_on_its_own() {
+    let h = harness(HarnessOpts {
+        chat: vec![ScriptedChat::text("在左边。[POINT:100,100:left:0]")],
+        ..Default::default()
+    });
+    let engine = VoiceEngine::new(h.deps.clone());
+    engine.ask_typed("这个东西在哪").unwrap();
+
+    assert!(
+        !h.overlay.shown.lock().unwrap().is_empty(),
+        "a typed answer still points"
+    );
+    let delayed = h.overlay.delayed();
+    assert_eq!(
+        delayed.len(),
+        1,
+        "nothing is spoken here and no turn end clears it, so the plan has to carry its own end: {delayed:?}"
+    );
+    assert!(delayed[0] >= 1000, "{delayed:?}");
+}

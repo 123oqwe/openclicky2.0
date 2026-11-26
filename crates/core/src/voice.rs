@@ -661,6 +661,9 @@ impl VoiceEngine {
                 self.deps.emit(AppEvent::Annotations {
                     plan_id: plan.plan_id.clone(),
                 });
+                // A typed answer is never spoken, so nothing else would ever end
+                // this pointer: no utterance, no end of turn, no next question.
+                let _ = self.deps.overlay.clear_after(UNSPOKEN_POINTER_MS);
             }
         }
         // A cancelled ask never reaches this point: it returns before the turn is
