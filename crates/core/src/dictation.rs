@@ -31,17 +31,58 @@ pub fn merge_partial(prev: &str, next: &str) -> (String, String) {
 
 /// Replace words the user has corrected before.
 pub fn apply_dictionary(text: &str, dict: &[(String, String)]) -> String {
-    let mut out = text.to_string();
-    // Longest keys first so "open clicky" wins over "clicky".
-    let mut entries: Vec<&(String, String)> = dict.iter().collect();
+    if dict.is_empty() {
+        return text.to_string();
+    }
+    // Longest key first so "open clicky" wins over "clicky" at the same position.
+    let mut entries: Vec<&(String, String)> = dict.iter().filter(|(h, _)| !h.is_empty()).collect();
     entries.sort_by_key(|(heard, _)| std::cmp::Reverse(heard.chars().count()));
-    for (heard, corrected) in entries {
-        if heard.is_empty() {
-            continue;
+
+    // One pass over the original text, never over the output. Chaining
+    // `str::replace` meant B→C could rewrite a B that A→B had just produced, and
+    // that a key could match inside a longer word ("cat" inside "concatenate").
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    'scan: while i < chars.len() {
+        for (heard, corrected) in &entries {
+            let key: Vec<char> = heard.chars().collect();
+            let end = i + key.len();
+            if end > chars.len() || chars[i..end] != key[..] {
+                continue;
+            }
+            if !boundary_ok(&chars, i, end, &key) {
+                continue;
+            }
+            out.push_str(corrected);
+            i = end;
+            continue 'scan;
         }
-        out = out.replace(heard.as_str(), corrected);
+        out.push(chars[i]);
+        i += 1;
     }
     out
+}
+
+/// A match must not be glued to another word. Latin keys use the ASCII
+/// alphanumeric set; keys without ASCII letters are treated as CJK, where the
+/// separator is any other CJK character.
+fn boundary_ok(chars: &[char], start: usize, end: usize, key: &[char]) -> bool {
+    let latin = key.iter().any(|c| c.is_ascii_alphanumeric());
+    let joins = |c: char| {
+        if latin {
+            c.is_ascii_alphanumeric()
+        } else {
+            is_cjk(c)
+        }
+    };
+    let left_ok = start == 0 || !joins(chars[start - 1]);
+    let right_ok = end >= chars.len() || !joins(chars[end]);
+    left_ok && right_ok
+}
+
+fn is_cjk(c: char) -> bool {
+    matches!(c as u32, 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF | 0x3040..=0x30FF)
 }
 
 /// Terminal safety: never inject anything that could run as a command.
@@ -74,22 +115,38 @@ pub fn cleanup(text: &str) -> String {
     chars.into_iter().collect()
 }
 
+/// Words that mean the sentence is about a credential, whatever the digits.
+const SECRET_WORDS: [&str; 8] = [
+    "密码",
+    "验证码",
+    "卡号",
+    "cvv",
+    "password",
+    "one-time",
+    "otp",
+    "card number",
+];
+
 pub fn looks_secret(text: &str) -> bool {
     let lower = text.to_lowercase();
-    const WORDS: [&str; 8] = [
-        "密码",
-        "验证码",
-        "卡号",
-        "cvv",
-        "password",
-        "one-time",
-        "otp",
-        "card number",
-    ];
-    if WORDS.iter().any(|w| lower.contains(w)) {
-        return true;
+    SECRET_WORDS.iter().any(|w| lower.contains(w)) || has_card_number(&lower) || has_otp(&lower)
+}
+
+/// Why the text was refused, so the notice can name the reason instead of
+/// repeating "looks like a password or a code" to a user who just dictated an
+/// order number.
+pub fn secret_reason(text: &str) -> Option<&'static str> {
+    let lower = text.to_lowercase();
+    if SECRET_WORDS.iter().any(|w| lower.contains(w)) {
+        return Some("这段话里出现了密码、验证码或卡号这类词");
     }
-    has_card_number(&lower) || has_otp(&lower)
+    if has_card_number(&lower) {
+        return Some("这段数字通过了银行卡校验");
+    }
+    if has_otp(&lower) {
+        return Some("这段数字像一次性验证码");
+    }
+    None
 }
 
 /// Luhn check over any 13-19 digit run, so a dictation of a card number is
@@ -125,11 +182,33 @@ fn luhn(digits: &str) -> bool {
     sum.is_multiple_of(10)
 }
 
-/// A standalone six-to-eight digit token is almost always a one-time code.
-/// Four and five digit tokens are excluded on purpose: years and prices would
-/// trip them constantly.
+/// Words that make a six-to-eight digit run a code rather than a number someone
+/// wanted written down. "code" is safe here only because a cue alone is not
+/// enough: the text must also contain a six-to-eight digit run, so "把这段 code
+/// 记一下" passes while "the code is 123456" does not.
+const OTP_CUES: [&str; 10] = [
+    "验证码",
+    "动态码",
+    "安全码",
+    "一次性密码",
+    "otp",
+    "one-time",
+    "one time",
+    "2fa",
+    "two-factor",
+    "code",
+];
+
+/// A code is a number *in a context*, not a number with six digits. The old rule
+/// blocked every six-to-eight digit token, so "把订单号 20261125 记一下" was
+/// refused and the user had no way past it. Missing a code costs one retype;
+/// blocking a number someone meant to dictate costs the whole feature.
 fn has_otp(text: &str) -> bool {
-    text.split_whitespace().any(|tok| {
+    let lower = text.to_lowercase();
+    if !OTP_CUES.iter().any(|cue| lower.contains(cue)) {
+        return false;
+    }
+    lower.split_whitespace().any(|tok| {
         let t = tok.trim_matches(|c: char| !c.is_ascii_digit());
         (6..=8).contains(&t.len()) && t.chars().all(|c| c.is_ascii_digit())
     })
@@ -222,7 +301,10 @@ impl DictationEngine {
         if looks_secret(&text) {
             self.deps.emit(AppEvent::Notice {
                 code: "E_SECRET".into(),
-                message: "这段话看起来包含密码或验证码，我不会代填。".into(),
+                message: format!(
+                    "{}，我不会代填。",
+                    secret_reason(&text).unwrap_or("这段话不能代填")
+                ),
             });
             return Ok(None);
         }
@@ -296,7 +378,10 @@ impl DictationEngine {
         if looks_secret(&final_text) {
             self.deps.emit(AppEvent::Notice {
                 code: "E_SECRET".into(),
-                message: "这段话看起来包含密码或验证码，我不代填。请自己输入。".into(),
+                message: format!(
+                    "{}，我不代填。请自己输入。",
+                    secret_reason(&final_text).unwrap_or("这段话不能代填")
+                ),
             });
             self.deps.emit(AppEvent::State(crate::voice::State::Idle));
             return Ok(DictationResult {
@@ -446,14 +531,93 @@ mod tests {
     #[test]
     fn one_time_codes_are_detected_but_years_are_not() {
         assert!(looks_secret("the code is 123456"));
-        assert!(looks_secret("use 90817263 now"));
         assert!(!looks_secret("we ship in 2026"));
         assert!(!looks_secret("it costs 1234"));
+    }
+
+    #[test]
+    fn a_bare_long_number_is_no_longer_a_code() {
+        // This used to be true, on the shape of the number alone. #110 is that
+        // behaviour: it refused "把订单号 20261125 记一下" with no way past it.
+        assert!(!looks_secret("use 90817263 now"));
+        assert!(!looks_secret("把订单号 20261125 记一下"));
     }
 
     #[test]
     fn edit_distance_basic() {
         assert_eq!(edit_distance("kitten", "sitting"), 3);
         assert_eq!(edit_distance("", "abc"), 3);
+    }
+}
+
+#[cfg(test)]
+mod number_and_word_boundary_tests {
+    use super::*;
+
+    fn dict() -> Vec<(String, String)> {
+        vec![("cat".to_string(), "dog".to_string())]
+    }
+
+    #[test]
+    fn a_dictionary_key_does_not_reach_inside_a_longer_word() {
+        assert_eq!(apply_dictionary("concatenate", &dict()), "concatenate");
+        assert_eq!(apply_dictionary("the cat sat", &dict()), "the dog sat");
+    }
+
+    #[test]
+    fn a_dictionary_rewrite_does_not_feed_the_next_entry() {
+        let chain = vec![
+            ("cat".to_string(), "dog".to_string()),
+            ("dog".to_string(), "bird".to_string()),
+        ];
+        assert_eq!(
+            apply_dictionary("cat", &chain),
+            "dog",
+            "the second entry must see the original text, not the first result"
+        );
+    }
+
+    #[test]
+    fn a_cjk_key_replaces_only_where_it_is_not_glued_to_more_cjk() {
+        let d = vec![("点钟".to_string(), "点整".to_string())];
+        assert_eq!(apply_dictionary("三点钟了", &d), "三点钟了");
+        assert_eq!(apply_dictionary("三点钟", &d), "三点钟");
+        assert_eq!(apply_dictionary("现在 点钟 了", &d), "现在 点整 了");
+    }
+
+    #[test]
+    fn an_order_number_is_not_a_verification_code() {
+        assert!(!looks_secret("把订单号 20261125 记一下"));
+        assert!(!looks_secret("这个数是 1234567"));
+        assert!(!looks_secret("123456"));
+    }
+
+    #[test]
+    fn a_code_someone_names_is_still_a_code() {
+        assert!(looks_secret("验证码是 483920"));
+        assert!(looks_secret("the OTP is 483920"));
+        assert!(looks_secret("the code is 123456"));
+    }
+
+    #[test]
+    fn a_card_number_is_still_refused() {
+        assert!(looks_secret("卡号 4111 1111 1111 1111"));
+    }
+}
+
+#[cfg(test)]
+mod refusal_reason_tests {
+    use super::*;
+
+    #[test]
+    fn the_notice_can_name_which_rule_fired() {
+        assert!(secret_reason("4111 1111 1111 1111")
+            .unwrap()
+            .contains("银行卡"));
+        assert!(secret_reason("卡号 4111 1111 1111 1111")
+            .unwrap()
+            .contains("卡号"));
+        assert!(secret_reason("验证码是 483920").unwrap().contains("验证码"));
+        assert!(secret_reason("use 90817263 now").is_none());
     }
 }
