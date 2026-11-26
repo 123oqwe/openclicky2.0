@@ -465,6 +465,9 @@ pub enum InjectOutcome {
 pub trait TextInjector: Send + Sync {
     fn focused(&self) -> Option<TargetInfo>;
     fn inject(&self, text: &str, target: &TargetInfo) -> Result<InjectOutcome>;
+    /// Put the text on the clipboard and stop. The fallback when the answer was
+    /// not something anyone asked to type.
+    fn copy(&self, text: &str) -> Result<InjectOutcome>;
 }
 
 // ---------------------------------------------------------------- processes

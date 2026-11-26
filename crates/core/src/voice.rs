@@ -12,7 +12,7 @@ use chrono::Utc;
 use crate::annotations::{self, ParsedReply};
 use crate::deps::Deps;
 use crate::error::{Error, Result};
-use crate::ports::{ChatMessage, ChatRequest, Role, SpeechOptions, TargetKind};
+use crate::ports::{ChatMessage, ChatRequest, Role, SpeechOptions};
 use crate::privacy::CaptureReason;
 use crate::prompt::{self, PromptContext};
 use crate::router::{self, RouteInput};
@@ -424,13 +424,9 @@ impl VoiceEngine {
                     code: "E_TTS".into(),
                     message: format!("{}（改为字幕与剪贴板）", e.user_message()),
                 });
-                let _ = self.deps.injector.inject(
-                    &spoken,
-                    &crate::ports::TargetInfo {
-                        app: "clipboard".into(),
-                        kind: TargetKind::Other,
-                    },
-                );
+                // A fallback answer was not dictated, so it must never be
+                // typed. Copying is the whole point of the fallback.
+                let _ = self.deps.injector.copy(&spoken);
             }
         }
 

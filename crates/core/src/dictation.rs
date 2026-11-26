@@ -8,6 +8,7 @@ use chrono::Utc;
 use crate::deps::Deps;
 use crate::error::{Error, Result};
 use crate::ports::{InjectOutcome, TargetInfo, TargetKind};
+use crate::text::{cleanup, terminal_safe};
 use crate::AppEvent;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,36 +84,6 @@ fn boundary_ok(chars: &[char], start: usize, end: usize, key: &[char]) -> bool {
 
 fn is_cjk(c: char) -> bool {
     matches!(c as u32, 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF | 0x3040..=0x30FF)
-}
-
-/// Terminal safety: never inject anything that could run as a command.
-pub fn terminal_safe(text: &str) -> String {
-    let flat: String = text
-        .chars()
-        .map(|c| if c == '\n' || c == '\r' { ' ' } else { c })
-        .collect();
-    flat.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-/// Conservative cleanup: fix obvious spacing, never add facts or dashes.
-pub fn cleanup(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for c in text.chars() {
-        if c == '\u{2014}' || c == '\u{2013}' {
-            out.push(' ');
-            continue;
-        }
-        out.push(c);
-    }
-    let collapsed = out.split_whitespace().collect::<Vec<_>>().join(" ");
-    if collapsed.is_empty() {
-        return collapsed;
-    }
-    let mut chars: Vec<char> = collapsed.chars().collect();
-    if let Some(first) = chars.first_mut() {
-        *first = first.to_uppercase().next().unwrap_or(*first);
-    }
-    chars.into_iter().collect()
 }
 
 /// Words that mean the sentence is about a credential, whatever the digits.

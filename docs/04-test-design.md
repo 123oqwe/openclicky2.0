@@ -277,6 +277,10 @@
 | `describe_target` | 提示里有 provider 名与 base_url | `::the_target_is_named_so_a_refusal_points_at_one_endpoint` |
 | `save_provider` | 被拒的保存不改写还能用的配置文件，也不写钥匙串 | `::a_refused_save_leaves_the_working_config_file_alone` |
 | `save_provider` | 通过的保存写模型并存入 key | `::an_accepted_save_writes_the_model_and_stores_the_key` |
+| `plan_injection` | 终端永不逐字敲，只粘贴压平后的文本 | `crates/core/src/text.rs::a_terminal_never_receives_typed_text` |
+| `plan_injection` | 有意的听写才走键盘 | `crates/core/src/text.rs::an_editor_receives_keystrokes_when_the_text_was_asked_for` |
+| `plan_injection` | 兜底回答只复制，永不敲 | `crates/core/src/text.rs::a_fallback_answer_is_copied_and_never_typed` |
+| `TextInjector::copy` | TTS 失败时不在键盘路径注入，回答进剪贴板 | `crates/core/tests/e2e_ask.rs::silent_tts_falls_back_to_text_and_clipboard` |
 | `conversation_session` | 30 分钟内两次提问共用一个 session，第二次请求带上一轮 | `crates/core/tests/e2e_ask.rs::a_follow_up_shares_the_session_and_sees_the_earlier_turn` |
 | `conversation_session` | 间隔超过窗口就换新 session | `crates/core/tests/e2e_ask.rs::a_long_gap_starts_a_new_conversation` |
 | `apply_dictionary` | 不在长词内部替换，且一次扫描不级联 | `crates/core/src/dictation.rs::a_dictionary_key_does_not_reach_inside_a_longer_word`、`::a_dictionary_rewrite_does_not_feed_the_next_entry` |
