@@ -41,6 +41,19 @@ const T = window.__TAURI__;
       while (host.childElementCount > 5) host.lastElementChild.remove();
     }
 
+    // 每 2 秒的轮询会在指针底下重建列表，所以内容没变就不重画。
+    let lastIssuesKey = null;
+    function renderIssues(issues) {
+      const list = issues || [];
+      const key = list.join('\u0000');
+      if (key === lastIssuesKey) return;
+      lastIssuesKey = key;
+      const host = $('issueItems');
+      host.textContent = '';
+      for (const text of list) host.append(el('li', { text }));
+      $('issues').hidden = list.length === 0;
+    }
+
     function setState(name) {
       // `app_state` reports `as_str()` and the State event reports the serde
       // name; normalize so both paths show the same word.
@@ -276,6 +289,8 @@ const T = window.__TAURI__;
         const s = await invoke('app_state');
         setState(s.state);
         $('meta').textContent = `${s.model || '未选择模型'} · ${s.data_dir}`;
+        $('configPath').textContent = s.config_path;
+        renderIssues(s.issues);
         $('onboard').hidden = !!s.ready && !hasMissingPerms;
         $('chat').style.opacity = s.ready ? '1' : '.5';
 
@@ -428,6 +443,11 @@ const T = window.__TAURI__;
         showError(e);
         if (text.includes('E_KEY_NOT_STORED')) offerFileStore();
       }
+    };
+
+    $('reloadConfig').onclick = async () => {
+      try { await invoke('reload_config'); } catch (e) { showError(e); }
+      await refresh();
     };
 
     $('send').onclick = async () => {
