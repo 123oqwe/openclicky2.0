@@ -63,12 +63,20 @@ if ! printf 'test-key\n' | "$BIN" --data-dir "$TMP" set-key --remember-file >/de
 fi
 # A key that only lived in the set-key process is not a key. Checking the next
 # process is what separates "the store kept it" from "set-key said it did".
-if ! "$BIN" --data-dir "$TMP" doctor 2>/dev/null | grep -q '^api key: present'; then
-  printf 'CANNOT RUN: this build cannot persist a key (no durable store), so ask\n' >&2
-  printf 'cannot be exercised. The fix is the durable key store; run again on a\n' >&2
-  printf 'build that has it.\n' >&2
-  exit 2
-fi
+#
+# Not `doctor | grep -q`: grep -q exits on the first match, the writer gets
+# SIGPIPE, and `set -o pipefail` turns that into a failure. That reported a
+# missing durable store when the store was fine.
+doctor_out="$("$BIN" --data-dir "$TMP" doctor 2>/dev/null || true)"
+case "$doctor_out" in
+  *"api key: present"*) ;;
+  *)
+    printf 'CANNOT RUN: this build cannot persist a key, so the ask path cannot\n' >&2
+    printf 'be exercised. The fix is the durable key store; run again on a build\n' >&2
+    printf 'that has it. The doctor line was:\n%s\n' "$(printf '%s' "$doctor_out" | grep 'api key' || echo '(no api key line)')" >&2
+    exit 2
+    ;;
+esac
 
 OUT="$("$BIN" --data-dir "$TMP" ask --text "提交按钮在哪")" || fail "ask exited non-zero"
 printf '%s\n' "$OUT"
