@@ -142,6 +142,10 @@ impl PointerOverlay for PrintOverlay {
         }
         Ok(())
     }
+    fn clear_after(&self, ms: u64) -> openclicky_core::Result<()> {
+        println!("pointer clears in {ms}ms");
+        Ok(())
+    }
     fn clear(&self) -> openclicky_core::Result<()> {
         Ok(())
     }

@@ -179,16 +179,41 @@ fn spawn_run(state: &AppState, id: String) {
 
 struct WindowOverlay {
     app: tauri::AppHandle,
+    /// Which plan is on screen. A clear scheduled for one plan must not erase a
+    /// newer one, so the plan that is current when the timer fires decides.
+    current: Arc<Mutex<u64>>,
+}
+
+impl WindowOverlay {
+    fn emit_clear(&self) {
+        let _ = self.app.emit("pointer-clear", ());
+    }
 }
 
 impl PointerOverlay for WindowOverlay {
     fn show(&self, plan: &PointerPlan) -> openclicky_core::Result<()> {
+        *self.current.lock().unwrap() += 1;
         let payload = serde_json::to_value(plan).unwrap_or(serde_json::Value::Null);
         let _ = self.app.emit("pointer-plan", payload);
         Ok(())
     }
     fn clear(&self) -> openclicky_core::Result<()> {
-        let _ = self.app.emit("pointer-clear", ());
+        *self.current.lock().unwrap() += 1;
+        self.emit_clear();
+        Ok(())
+    }
+    /// The sleep runs on this thread rather than blocking the ask, which has
+    /// already returned by the time it starts.
+    fn clear_after(&self, ms: u64) -> openclicky_core::Result<()> {
+        let mine = *self.current.lock().unwrap();
+        let current = self.current.clone();
+        let app = self.app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(ms));
+            if *current.lock().unwrap() == mine {
+                let _ = app.emit("pointer-clear", ());
+            }
+        });
         Ok(())
     }
 }
@@ -229,7 +254,10 @@ fn build_state(
             config: config.clone(),
         }),
         Arc::from(SystemSpeech),
-        Arc::from(WindowOverlay { app: app.clone() }),
+        Arc::from(WindowOverlay {
+            app: app.clone(),
+            current: Arc::from(Mutex::new(0)),
+        }),
         Arc::from(PlatformInjector),
         Arc::from(platform_permissions::SystemProbe),
         store.clone(),
