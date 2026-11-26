@@ -561,11 +561,10 @@ pub fn plan_from(
                     target: Some(target),
                     strokes,
                     text: None,
-                    ttl_ms: 2500,
                 });
             }
             AnnotationKind::Draw(shape) => {
-                let (strokes, text, ttl) = shape_to_strokes(shape, d, &mut seed);
+                let (strokes, text) = shape_to_strokes(shape, d, &mut seed);
                 if strokes.is_empty() && text.is_none() {
                     continue;
                 }
@@ -575,18 +574,16 @@ pub fn plan_from(
                     target: None,
                     strokes,
                     text,
-                    ttl_ms: ttl,
                 });
             }
             AnnotationKind::Step { n: _, label, shape } => {
-                let (strokes, text, ttl) = shape_to_strokes(shape, d, &mut seed);
+                let (strokes, text) = shape_to_strokes(shape, d, &mut seed);
                 items.push(PointerItem {
                     screen: ann.screen,
                     label: Some(label.clone()),
                     target: Some(shape_focus(shape, d)),
                     strokes,
                     text,
-                    ttl_ms: ttl,
                 });
             }
         }
@@ -625,7 +622,7 @@ fn shape_to_strokes(
     shape: &Shape,
     d: &DisplayInfo,
     seed: &mut Lcg,
-) -> (Vec<Stroke>, Option<String>, u64) {
+) -> (Vec<Stroke>, Option<String>) {
     match shape {
         Shape::Circle { cx, cy, r } => {
             let c = to_global(d, *cx, *cy);
@@ -637,7 +634,6 @@ fn shape_to_strokes(
                     closed: false,
                 }],
                 None,
-                0,
             )
         }
         Shape::Rect { x, y, w, h } => {
@@ -651,7 +647,6 @@ fn shape_to_strokes(
                     closed: true,
                 }],
                 None,
-                2000,
             )
         }
         Shape::Arrow { x1, y1, x2, y2 } => {
@@ -664,7 +659,6 @@ fn shape_to_strokes(
                     closed: false,
                 }],
                 None,
-                0,
             )
         }
         Shape::Line { x1, y1, x2, y2 } => {
@@ -685,7 +679,6 @@ fn shape_to_strokes(
                     closed: false,
                 }],
                 None,
-                0,
             )
         }
         Shape::Poly { points } => {
@@ -697,12 +690,11 @@ fn shape_to_strokes(
                     closed: true,
                 }],
                 None,
-                0,
             )
         }
         Shape::Text { x, y, body } => {
             let _anchor = to_global(d, *x, *y);
-            (Vec::new(), Some(body.clone()), 0)
+            (Vec::new(), Some(body.clone()))
         }
     }
 }

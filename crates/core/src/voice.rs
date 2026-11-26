@@ -67,6 +67,12 @@ pub struct AskOutcome {
 /// model could not follow "make it bigger" after "move the box".
 const CONVERSATION_TTL_SECS: i64 = 30 * 60;
 
+/// How long a pointer stays when no speech is drawn over it. A plan with no
+/// lifetime of its own is meant to last exactly as long as the answer being
+/// spoken; without speech that is nothing at all, and a pointer nobody sees is
+/// worse than no pointer feature.
+const UNSPOKEN_POINTER_MS: u64 = 4000;
+
 struct Conversation {
     id: String,
     started: chrono::DateTime<chrono::Utc>,
@@ -435,6 +441,11 @@ impl VoiceEngine {
             self.deps.emit(AppEvent::Subtitle {
                 text: spoken.clone(),
             });
+            // Nothing is spoken over this plan, so "until the speech ends" would
+            // mean milliseconds. Hand the overlay a duration instead.
+            if plan.is_some() {
+                let _ = self.deps.overlay.clear_after(UNSPOKEN_POINTER_MS);
+            }
         }
 
         // A cancelled ask never reaches this point: it returns before the turn is
@@ -487,7 +498,12 @@ impl VoiceEngine {
             task_update: None,
         })?;
 
-        self.deps.overlay.clear().ok();
+        // The pointer's life was the utterance, and the utterance is over. When
+        // there was no utterance, the plan carries its own lifetime and the
+        // overlay is what ends it.
+        if !speech_fallback {
+            self.deps.overlay.clear().ok();
+        }
         self.set_state(State::Idle);
 
         let percent = self.deps.usage.state(now)?.percent;
@@ -645,6 +661,9 @@ impl VoiceEngine {
                 self.deps.emit(AppEvent::Annotations {
                     plan_id: plan.plan_id.clone(),
                 });
+                // A typed answer is never spoken, so nothing else would ever end
+                // this pointer: no utterance, no end of turn, no next question.
+                let _ = self.deps.overlay.clear_after(UNSPOKEN_POINTER_MS);
             }
         }
         // A cancelled ask never reaches this point: it returns before the turn is

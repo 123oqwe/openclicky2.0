@@ -69,8 +69,6 @@ pub struct PointerItem {
     pub target: Option<Point>,
     pub strokes: Vec<Stroke>,
     pub text: Option<String>,
-    /// 0 = stays until speech ends.
-    pub ttl_ms: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

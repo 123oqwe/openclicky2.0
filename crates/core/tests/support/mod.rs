@@ -353,11 +353,15 @@ impl SpeechOut for FakeSpeech {
 pub struct FakeOverlay {
     pub shown: Mutex<Vec<PointerPlan>>,
     pub clears: Mutex<u32>,
+    pub delayed: Mutex<Vec<u64>>,
 }
 
 impl FakeOverlay {
     pub fn new() -> Arc<Self> {
         Arc::new(Self::default())
+    }
+    pub fn delayed(&self) -> Vec<u64> {
+        self.delayed.lock().unwrap().clone()
     }
 }
 
@@ -368,6 +372,10 @@ impl PointerOverlay for FakeOverlay {
     }
     fn clear(&self) -> Result<()> {
         *self.clears.lock().unwrap() += 1;
+        Ok(())
+    }
+    fn clear_after(&self, ms: u64) -> Result<()> {
+        self.delayed.lock().unwrap().push(ms);
         Ok(())
     }
 }

@@ -421,6 +421,12 @@ pub trait SpeechOut: Send + Sync {
 pub trait PointerOverlay: Send + Sync {
     fn show(&self, plan: &PointerPlan) -> Result<()>;
     fn clear(&self) -> Result<()>;
+    /// Take the plan down after `ms`, unless a newer plan replaces it first.
+    ///
+    /// A pointer drawn over spoken words lives as long as the words do, and the
+    /// end of speech clears it. Nothing is spoken when the voice is unavailable,
+    /// so the pointer needs a life of its own or it is gone in milliseconds.
+    fn clear_after(&self, ms: u64) -> Result<()>;
 }
 
 // ---------------------------------------------------------------- injection

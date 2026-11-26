@@ -436,3 +436,97 @@ fn a_long_gap_starts_a_new_conversation() {
         "two hours later is a different conversation, not a follow-up"
     );
 }
+
+#[test]
+fn a_spoken_answer_clears_the_pointer_when_the_speech_ends() {
+    let h = harness(HarnessOpts {
+        chat: vec![ScriptedChat::text("在左边。[POINT:100,100:left:0]")],
+        ..Default::default()
+    });
+    let engine = VoiceEngine::new(h.deps.clone());
+    engine.on_hotkey_down().unwrap();
+    engine.on_hotkey_up().unwrap();
+
+    assert_eq!(
+        *h.overlay.clears.lock().unwrap(),
+        1,
+        "the pointer's life was the utterance, and the utterance is over"
+    );
+    assert!(
+        h.overlay.delayed().is_empty(),
+        "nothing was scheduled, because the speech is what ended it"
+    );
+}
+
+#[test]
+fn a_silent_answer_gives_the_pointer_a_life_instead_of_erasing_it() {
+    let h = harness(HarnessOpts {
+        chat: vec![ScriptedChat::text("在左边。[POINT:100,100:left:0]")],
+        tts_fail: true,
+        ..Default::default()
+    });
+    let engine = VoiceEngine::new(h.deps.clone());
+    engine.on_hotkey_down().unwrap();
+    engine.on_hotkey_up().unwrap();
+
+    assert!(
+        !h.overlay.shown.lock().unwrap().is_empty(),
+        "the pointer still has to be drawn, or there is nothing to keep"
+    );
+    assert_eq!(
+        *h.overlay.clears.lock().unwrap(),
+        0,
+        "there was no speech for the pointer to outlive, so the turn must not erase it"
+    );
+    let delayed = h.overlay.delayed();
+    assert_eq!(
+        delayed.len(),
+        1,
+        "exactly one timer, or the pointer either never goes or goes twice: {delayed:?}"
+    );
+    assert!(
+        delayed[0] >= 1000,
+        "a life the eye can see, not the few milliseconds this bug gave it: {delayed:?}"
+    );
+}
+
+#[test]
+fn a_pointer_with_no_strokes_gets_the_same_life() {
+    let h = harness(HarnessOpts {
+        chat: vec![ScriptedChat::text("看这里 [DRAW:0:text(20,30,hello)]")],
+        tts_fail: true,
+        ..Default::default()
+    });
+    let engine = VoiceEngine::new(h.deps.clone());
+    engine.on_hotkey_down().unwrap();
+    engine.on_hotkey_up().unwrap();
+
+    assert_eq!(*h.overlay.clears.lock().unwrap(), 0);
+    assert_eq!(
+        h.overlay.delayed().len(),
+        1,
+        "a text-only plan is not a special case"
+    );
+}
+
+#[test]
+fn a_typed_answer_ends_the_pointer_on_its_own() {
+    let h = harness(HarnessOpts {
+        chat: vec![ScriptedChat::text("在左边。[POINT:100,100:left:0]")],
+        ..Default::default()
+    });
+    let engine = VoiceEngine::new(h.deps.clone());
+    engine.ask_typed("这个东西在哪").unwrap();
+
+    assert!(
+        !h.overlay.shown.lock().unwrap().is_empty(),
+        "a typed answer still points"
+    );
+    let delayed = h.overlay.delayed();
+    assert_eq!(
+        delayed.len(),
+        1,
+        "nothing is spoken here and no turn end clears it, so the plan has to carry its own end: {delayed:?}"
+    );
+    assert!(delayed[0] >= 1000, "{delayed:?}");
+}
