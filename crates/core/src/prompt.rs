@@ -1,6 +1,7 @@
 //! Prompt construction. Deterministic and snapshot-tested: the same inputs must
 //! always produce byte-identical prompts, so behaviour changes are visible.
 
+use crate::annotations::picture_shrink;
 use crate::ports::DisplayInfo;
 
 pub const PROMPT_VERSION: &str = "oc2-p1";
@@ -20,6 +21,13 @@ pub struct PromptContext<'a> {
     pub drawing_region: Option<(usize, crate::geom::Rect)>,
 }
 
+/// The image the model receives is downscaled to `PICTURE_MAX_EDGE`, so a size
+/// quoted in physical pixels describes a picture the model never sees. Every
+/// coordinate in a reply is a pixel of that smaller image.
+fn picture_px(physical: u32, display: &DisplayInfo) -> i64 {
+    (physical as f64 * picture_shrink(display)).round() as i64
+}
+
 pub fn system_prompt(ctx: &PromptContext<'_>) -> String {
     let mut out = String::new();
     out.push_str(
@@ -35,10 +43,10 @@ pub fn system_prompt(ctx: &PromptContext<'_>) -> String {
     out.push_str("screens you were given (coordinates must use these images):\n");
     for d in ctx.displays {
         out.push_str(&format!(
-            "- screen{}: {}x{} px (logical {}x{} at {},{}), scale {}{}\n",
+            "- screen{}: {}x{} picture px (logical {}x{} at {},{}), scale {}{}\n",
             d.index,
-            d.width_px(),
-            d.height_px(),
+            picture_px(d.width_px(), d),
+            picture_px(d.height_px(), d),
             d.width.round() as i64,
             d.height.round() as i64,
             d.origin_x.round() as i64,
@@ -219,6 +227,7 @@ pub fn teaching_card(app: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::annotations::to_global;
     use crate::ports::DisplayInfo;
 
     fn displays() -> Vec<DisplayInfo> {
@@ -299,9 +308,53 @@ mod tests {
         let ds = displays();
         let p = system_prompt(&ctx(&ds, &[]));
         assert!(
-            p.contains("screen0: 3024x1964 px (logical 1512x982 at 0,0), scale 2, cursor is here")
+            p.contains(
+                "screen0: 1280x831 picture px (logical 1512x982 at 0,0), scale 2, cursor is here"
+            ),
+            "{p}"
         );
-        assert!(p.contains("screen1: 1920x1080 px (logical 1920x1080 at -1920,0), scale 1\n"));
+        assert!(
+            p.contains("screen1: 1280x720 picture px (logical 1920x1080 at -1920,0), scale 1\n"),
+            "{p}"
+        );
+    }
+
+    #[test]
+    fn the_size_in_the_prompt_is_the_size_the_model_actually_sees() {
+        let ds = displays();
+        let p = system_prompt(&ctx(&ds, &[]));
+        for d in &ds {
+            let expected_w = (d.width_px() as f64 * picture_shrink(d)).round() as i64;
+            let expected_h = (d.height_px() as f64 * picture_shrink(d)).round() as i64;
+            let line = format!(
+                "screen{}: {}x{} picture px",
+                d.index, expected_w, expected_h
+            );
+            assert!(
+                p.contains(&line),
+                "missing {line:?}; the model would be told a size it never sees"
+            );
+
+            // The same two numbers coming back must land on the screen edge. If
+            // the prompt quotes physical pixels, this overshoots by the scale.
+            let bottom_right = to_global(d, expected_w as f64, expected_h as f64);
+            let logical_x = d.origin_x + d.width;
+            let logical_y = d.origin_y + d.height;
+            assert!(
+                (bottom_right.x - logical_x).abs() <= 1.0,
+                "x {} vs {} on screen{}",
+                bottom_right.x,
+                logical_x,
+                d.index
+            );
+            assert!(
+                (bottom_right.y - logical_y).abs() <= 1.0,
+                "y {} vs {} on screen{}",
+                bottom_right.y,
+                logical_y,
+                d.index
+            );
+        }
     }
 
     #[test]
