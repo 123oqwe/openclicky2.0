@@ -17,3 +17,4 @@ coverage/
 # Python bytecode from running the doc scripts
 __pycache__/
 *.pyc
+.pi/
