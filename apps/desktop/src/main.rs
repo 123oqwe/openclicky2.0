@@ -318,39 +318,20 @@ fn save_provider(
     key: Option<String>,
     model: String,
 ) -> Result<(), String> {
-    let candidate = key.filter(|k| !k.trim().is_empty());
+    let candidate = key
+        .filter(|k| !k.trim().is_empty())
+        .map(|k| k.as_str().into());
     let mut cfg = state.config.read().unwrap().clone();
-    cfg.provider.chat_model = model.trim().to_string();
     let target = providers::describe_target(&cfg);
-
-    // Prove the key and the model before either is written. A save that fails
-    // must leave the previous, working configuration untouched, so nothing below
-    // this point runs until the check passes.
-    let checked = match candidate.as_deref() {
-        Some(k) => providers::check_save(&cfg, state.http.clone(), Some(&k.into()), &model),
-        None => match state.secrets.get(providers::KEY_NAME) {
-            Ok(Some(stored)) => {
-                providers::check_save(&cfg, state.http.clone(), Some(&stored), &model)
-            }
-            _ => Err(openclicky_core::Error::NoApiKey),
-        },
-    };
-    checked.map_err(|e| format!("{} ({}) — {}", e.user_message(), e.code(), target))?;
-
-    if let Some(k) = candidate {
-        state
-            .secrets
-            .set(providers::KEY_NAME, &k.as_str().into())
-            .map_err(|e| e.user_message())?;
-        if !state.secrets.is_durable() {
-            return Err(
-                "这个系统没有接受写入钥匙串,key 会在这个进程结束时消失。点下面的按钮改为存到加密文件。(E_KEY_NOT_STORED)"
-                    .to_string(),
-            );
-        }
-    }
-    cfg.save(&state.paths.config_file())
-        .map_err(|e| e.user_message())?;
+    providers::save_provider(
+        &mut cfg,
+        &state.paths.config_file(),
+        state.http.clone(),
+        state.secrets.as_ref(),
+        candidate.as_ref(),
+        &model,
+    )
+    .map_err(|e| format!("{} ({}) — {}", e.user_message(), e.code(), target))?;
     *state.config.write().unwrap() = cfg;
     Ok(())
 }

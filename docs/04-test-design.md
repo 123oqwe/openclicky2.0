@@ -275,6 +275,8 @@
 | `check_save` | 还没选模型也要验 key（列表能取到才算过） | `::an_unchosen_model_still_checks_the_key` |
 | `build_with_key` | 用候选 key 构建 provider 不写钥匙串（写入即 panic） | `::a_candidate_key_is_used_without_being_stored` |
 | `describe_target` | 提示里有 provider 名与 base_url | `::the_target_is_named_so_a_refusal_points_at_one_endpoint` |
+| `save_provider` | 被拒的保存不改写还能用的配置文件，也不写钥匙串 | `::a_refused_save_leaves_the_working_config_file_alone` |
+| `save_provider` | 通过的保存写模型并存入 key | `::an_accepted_save_writes_the_model_and_stores_the_key` |
 | `durable` | 文件存储持久；钥匙串拒写后不持久；两者组合的四种取值 | `crates/platform/src/secrets.rs::durability_is_decided_by_the_file_store_and_the_keychain` |
 | `is_durable` | 只剩内存时不得自称已保存 | `::a_store_that_cannot_persist_does_not_call_itself_durable` |
 | `allow_file_store` | 显式落盘后新进程仍读得到（文件即开关） | `::an_opted_in_store_is_still_opted_in_after_a_restart` |

@@ -80,6 +80,38 @@ pub fn check_save(
 /// Names what a request was aimed at. A refusal from one endpoint says nothing
 /// about another, and a message that omits both leaves the user guessing which
 /// setting to change.
+/// The one save sequence. Two callers had their own copy of "check, then store
+/// the key, then write the file", and only the order separates a refused save
+/// from a clobbered working configuration. Keeping it here means a test can call
+/// the whole thing and observe both the error and the untouched file.
+pub fn save_provider(
+    config: &mut Config,
+    path: &std::path::Path,
+    http: Arc<dyn HttpTransport>,
+    secrets: &dyn Secrets,
+    candidate: Option<&SecretString>,
+    model: &str,
+) -> Result<()> {
+    config.provider.chat_model = model.trim().to_string();
+
+    let key = match candidate {
+        Some(k) => k.clone(),
+        None => secrets.get(KEY_NAME)?.ok_or(Error::NoApiKey)?,
+    };
+    check_save(config, http, Some(&key), model)?;
+
+    if candidate.is_some() {
+        secrets.set(KEY_NAME, &key)?;
+        if !secrets.is_durable() {
+            return Err(Error::BadRequest(
+                "这个系统没有接受写入钥匙串,key 会在这个进程结束时消失。改为存到本目录的加密文件。(E_KEY_NOT_STORED)"
+                    .into(),
+            ));
+        }
+    }
+    config.save(path)
+}
+
 pub fn describe_target(config: &Config) -> String {
     format!(
         "{} @ {}",
