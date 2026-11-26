@@ -13,6 +13,21 @@ cd "$ROOT"
 has_code=0
 [ -f Cargo.toml ] && has_code=1
 
+# ---------------------------------------------------------------- history
+# A squash merge copies the whole commit body into main. A "Closes #63" trailer
+# therefore closes the issue without anyone deciding to, which happened on
+# 498e39a: the pull request said Refs and the commit body closed it anyway.
+# Closing intent belongs in the pull request, where it can be reviewed.
+note "== history: no auto-close keyword in a commit body =="
+main_ref=$(git rev-parse --verify --quiet origin/main || true)
+if [ -z "$main_ref" ]; then
+  note "   skipped: this clone has no origin/main to compare against"
+else
+  closers=$(git log --format=%B "$main_ref"..HEAD 2>/dev/null \
+            | grep -inE '^[[:space:]]*(closes|fixes|resolves)[[:space:]]+#' || true)
+  [ -z "$closers" ] || bad "commit body carries an auto-close keyword and a squash merge will act on it: $closers"
+fi
+
 # ---------------------------------------------------------------- docs
 # Every file path referenced by an ADR or by the baseline must exist, so that
 # "see 06-acceptance.md" never points at nothing.
