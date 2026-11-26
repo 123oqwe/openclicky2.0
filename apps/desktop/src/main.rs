@@ -3,6 +3,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -103,6 +104,11 @@ struct AppState {
     /// The dictation shortcut that is registered right now, so a save can take
     /// it back before installing the new one.
     dictation_shortcut: Arc<Mutex<Option<Shortcut>>>,
+    /// Every problem `Config::validate` reports, recomputed on start-up and on a
+    /// reload. Held here rather than derived per request because a file that no
+    /// longer parses has to be able to say so, and that failure has no config to
+    /// derive it from.
+    issues: Arc<RwLock<Vec<String>>>,
 }
 
 #[derive(serde::Serialize)]
@@ -199,6 +205,9 @@ fn build_state(
 ) -> Result<AppState, Box<dyn std::error::Error>> {
     paths.ensure()?;
     let config = Config::load(&paths.config_file())?;
+    // Reported, not enforced: a config with a missing model still starts, and the
+    // banner is how the user finds out why nothing works.
+    let issues = config_issues(&paths.config_file(), &config);
     let secrets = openclicky_platform::open_secrets(&paths.data_dir);
     let store = Arc::from(Store::open(&paths.db_file())?);
     let http: Arc<dyn HttpTransport> = Arc::from(UreqTransport::default());
@@ -289,24 +298,92 @@ fn build_state(
         dictation,
         app: app.clone(),
         dictation_shortcut: Arc::from(Mutex::new(None)),
+        issues: Arc::from(RwLock::from(issues)),
     })
 }
 
-#[tauri::command]
-fn app_state(state: TauriState<'_, AppState>) -> serde_json::Value {
-    let config = state.config.read().unwrap().clone();
-    let has_key = matches!(state.secrets.get(providers::KEY_NAME), Ok(Some(_)));
+/// The payload `app_state` and `reload_config` both answer with. Pure, so the
+/// banner's contract is testable without a window: every problem, in the order
+/// `validate` found them, and an empty list when the config is usable.
+fn app_state_view(
+    state_name: &str,
+    config: &Config,
+    issues: &[String],
+    has_key: bool,
+    paths: &Paths,
+) -> serde_json::Value {
     serde_json::json!({
-        "state": state.engine.state().as_str(),
+        "state": state_name,
         "has_key": has_key,
         "ready": has_key && !config.provider.chat_model.is_empty(),
         "model": config.provider.chat_model,
         "kind": config.provider.kind.as_str(),
         "base_url": config.provider.base_url,
+        "issues": issues,
         "budget": { "daily": config.budget.daily_units, "monthly": config.budget.monthly_units },
-        "config_path": state.paths.config_file().to_string_lossy(),
-        "data_dir": state.paths.data_dir.to_string_lossy(),
+        "config_path": paths.config_file().to_string_lossy(),
+        "data_dir": paths.data_dir.to_string_lossy(),
     })
+}
+
+fn has_key(state: &AppState) -> bool {
+    matches!(state.secrets.get(providers::KEY_NAME), Ok(Some(_)))
+}
+
+#[tauri::command]
+fn app_state(state: TauriState<'_, AppState>) -> serde_json::Value {
+    let config = state.config.read().unwrap();
+    let issues = state.issues.read().unwrap();
+    app_state_view(
+        state.engine.state().as_str(),
+        &config,
+        &issues,
+        has_key(&state),
+        &state.paths,
+    )
+}
+
+/// Read the file from disk again.
+///
+/// #65 cannot be closed by a restart, so the reload has to be reachable from the
+/// banner that reports the problem. A file that no longer parses must not replace
+/// the config the app is running on: the parse error becomes the issue and the
+/// previous values survive until the file is valid again.
+fn reload_from_disk(path: &Path, config: &mut Config) -> Vec<String> {
+    match Config::load(path) {
+        Ok(next) => {
+            *config = next;
+            config_issues(path, config)
+        }
+        Err(e) => vec![format!("配置读不了：{}", e.user_message())],
+    }
+}
+
+/// What is wrong with the file at `path`, given the config it produced.
+///
+/// A machine that has never been configured has no file, and `Config::load`
+/// answers with the default, whose empty `chat_model` fails validation. Reporting
+/// that would put a banner above the first-run card saying the same thing, on a
+/// first launch that has done nothing wrong. The banner is for a file that exists
+/// and is wrong.
+///
+/// Decided from the file's existence rather than from whether the first-run card
+/// is showing: two states that depend on each other are two states that can
+/// disagree.
+fn config_issues(path: &Path, config: &Config) -> Vec<String> {
+    if path.exists() {
+        config.validate()
+    } else {
+        Vec::new()
+    }
+}
+
+#[tauri::command]
+fn reload_config(state: TauriState<'_, AppState>) {
+    let mut next = state.config.read().unwrap().clone();
+    let issues = reload_from_disk(&state.paths.config_file(), &mut next);
+    *state.config.write().unwrap() = next;
+    *state.issues.write().unwrap() = issues;
 }
 
 #[tauri::command]
@@ -668,6 +745,7 @@ fn main() {
         .plugin(tauri_plugin_global_shortcut::Builder::default().build())
         .invoke_handler(tauri::generate_handler![
             app_state,
+            reload_config,
             list_models,
             save_provider,
             ask_text,
@@ -844,6 +922,131 @@ fn main() {
             }
             let _ = (app, event);
         });
+}
+
+#[cfg(test)]
+mod config_issue_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    /// `Config::default()` has no chat model, so it is not usable yet. This is
+    /// the smallest config that reports nothing.
+    fn usable() -> Config {
+        let mut cfg = Config::default();
+        cfg.provider.chat_model = "gpt-4o-mini".into();
+        cfg
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("openclicky-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join("config.toml")
+    }
+
+    fn cleanup(path: &Path) {
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn every_problem_is_reported_not_only_the_first() {
+        let mut cfg = usable();
+        cfg.provider.base_url = String::new();
+        cfg.voice.speech_speed = 3.0;
+        let issues = cfg.validate();
+        assert!(
+            issues.len() >= 2,
+            "a banner that shows one line hides the other problems: {issues:?}"
+        );
+        assert!(issues.iter().any(|i| i.contains("base_url")), "{issues:?}");
+        assert!(
+            issues.iter().any(|i| i.contains("speech_speed")),
+            "{issues:?}"
+        );
+    }
+
+    #[test]
+    fn fixing_the_file_clears_the_issues_without_a_restart() {
+        let path = scratch("reload");
+        let mut broken = usable();
+        broken.provider.base_url = String::new();
+        broken.save(&path).unwrap();
+
+        let mut running = usable();
+        let issues = reload_from_disk(&path, &mut running);
+        assert!(
+            issues.iter().any(|i| i.contains("base_url")),
+            "an empty base_url has to be reported: {issues:?}"
+        );
+        assert!(running.provider.base_url.is_empty());
+
+        usable().save(&path).unwrap();
+        let issues = reload_from_disk(&path, &mut running);
+        assert!(issues.is_empty(), "the banner must go away: {issues:?}");
+        assert!(
+            running.provider.base_url.starts_with("http"),
+            "reloading has to hand back what is on disk, not what was in memory"
+        );
+        cleanup(&path);
+    }
+
+    #[test]
+    fn a_first_run_with_no_config_file_shows_no_banner() {
+        let path = scratch("first-run");
+        let mut running = Config::default();
+
+        let issues = reload_from_disk(&path, &mut running);
+        assert!(
+            issues.is_empty(),
+            "nothing is configured yet, and the first-run card already says so: {issues:?}"
+        );
+
+        Config::default().save(&path).unwrap();
+        let issues = reload_from_disk(&path, &mut running);
+        assert!(
+            issues.iter().any(|i| i.contains("模型")),
+            "once the file is there, the missing model is the file's problem: {issues:?}"
+        );
+        cleanup(&path);
+    }
+
+    #[test]
+    fn a_file_that_no_longer_parses_is_the_issue_and_the_old_config_survives() {
+        let path = scratch("unparsable");
+        std::fs::write(&path, "this is not toml {{{").unwrap();
+        let mut running = usable();
+        let issues = reload_from_disk(&path, &mut running);
+        assert_eq!(issues.len(), 1, "{issues:?}");
+        assert!(issues[0].contains("配置读不了"), "{issues:?}");
+        assert_eq!(
+            running.provider.chat_model, "gpt-4o-mini",
+            "a typo must not wipe the settings the app is running on"
+        );
+        cleanup(&path);
+    }
+
+    #[test]
+    fn app_state_carries_every_issue() {
+        let mut cfg = usable();
+        cfg.provider.base_url = String::new();
+        cfg.voice.speech_speed = 3.0;
+        let issues = cfg.validate();
+        let paths = Paths::resolve(Some(&std::env::temp_dir()));
+
+        let view = app_state_view("idle", &cfg, &issues, true, &paths);
+        assert_eq!(
+            view["issues"].as_array().map(|a| a.len()),
+            Some(issues.len()),
+            "the banner reads this array: {view}"
+        );
+        assert!(
+            view["issues"].to_string().contains("base_url"),
+            "the line the user needs is the one naming the field: {view}"
+        );
+
+        let clean = app_state_view("idle", &usable(), &[], true, &paths);
+        assert_eq!(clean["issues"].as_array().map(|a| a.len()), Some(0));
+    }
 }
 
 #[cfg(test)]

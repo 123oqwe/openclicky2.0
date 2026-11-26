@@ -38,12 +38,27 @@
     #approvals .card { border-color:#78350f; }
     #planItems > div { margin-top:4px; }
     .empty { color:#888; font-size:12px; margin-top:8px; }
+    #issues { border-color:#78350f; background:#1f1a12; }
+    #issues .head { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+    #issues ul { margin:8px 0 0; padding-left:18px; color:#fde68a; font-size:12px; }
+    #issues li + li { margin-top:2px; }
+    #issues .fix { color:#bbb; font-size:12px; margin-top:8px; }
   </style>
 </head>
 <body>
   <section>
     <h1>OpenClicky</h1>
     <div class="muted"><span id="state" class="pill">…</span> <span id="meta"></span></div>
+
+    <!-- 配置有问题就列在这里，一条不吞。改好文件点重读即可，不用重启。 -->
+    <div id="issues" class="card" hidden>
+      <div class="head">
+        <strong>配置有问题</strong>
+        <button id="reloadConfig">重新读取配置</button>
+      </div>
+      <ul id="issueItems"></ul>
+      <div class="fix">改好 <code id="configPath">config.toml</code> 后点上面的按钮。</div>
+    </div>
 
     <!-- 首跑向导：没有 key、没有模型、或系统权限缺失时出现 -->
     <div id="onboard" class="card" hidden>
