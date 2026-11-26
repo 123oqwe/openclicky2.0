@@ -12,6 +12,7 @@ struct FakeHttp {
     response: Mutex<Option<HttpResponse>>,
     lines: Mutex<Vec<String>>,
     last_body: Mutex<Option<serde_json::Value>>,
+    last_url: Mutex<Option<String>>,
 }
 
 impl FakeHttp {
@@ -24,6 +25,7 @@ impl FakeHttp {
             })),
             lines: Mutex::new(vec![]),
             last_body: Mutex::new(None),
+            last_url: Mutex::new(None),
         })
     }
     fn sse(lines: Vec<&str>) -> std::sync::Arc<Self> {
@@ -31,10 +33,14 @@ impl FakeHttp {
             response: Mutex::new(None),
             lines: Mutex::new(lines.into_iter().map(str::to_string).collect()),
             last_body: Mutex::new(None),
+            last_url: Mutex::new(None),
         })
     }
     fn body(&self) -> Option<serde_json::Value> {
         self.last_body.lock().unwrap().clone()
+    }
+    fn url(&self) -> Option<String> {
+        self.last_url.lock().unwrap().clone()
     }
 }
 
@@ -80,11 +86,12 @@ impl HttpTransport for FakeHttp {
     }
     fn post_multipart(
         &self,
-        _u: &str,
+        u: &str,
         _h: &[(String, String)],
         _f: &MultipartForm,
         _t: Duration,
     ) -> openclicky_core::Result<HttpResponse> {
+        *self.last_url.lock().unwrap() = Some(u.to_string());
         Ok(self.response.lock().unwrap().clone().unwrap())
     }
     fn post_json_stream(
@@ -593,4 +600,46 @@ fn retries_stop_after_two_so_a_dead_provider_fails_in_seconds() {
         .unwrap_err();
     assert_eq!(error.code(), "E_OUTAGE");
     assert_eq!(http.calls(), 3, "the first attempt plus two retries");
+}
+
+#[test]
+fn dictation_goes_to_the_configured_stt_base() {
+    let mut c = cfg(ProviderKind::Openai);
+    c.provider.base_url = "http://127.0.0.1:1/v1".to_string();
+    c.provider.stt_base_url = "http://127.0.0.1:8795/v1".to_string();
+    let http = FakeHttp::json(200, r#"{"text":"hello"}"#);
+    let clip = AudioClip {
+        pcm: vec![0i16; 160],
+        sample_rate: 16_000,
+        channels: 1,
+    };
+    let t = openai::OpenAiStt::new(http.clone(), c, key())
+        .transcribe(&clip, None)
+        .unwrap();
+    assert_eq!(t.text, "hello");
+    assert_eq!(
+        http.url().as_deref(),
+        Some("http://127.0.0.1:8795/v1/audio/transcriptions")
+    );
+}
+
+#[test]
+fn an_empty_stt_base_falls_back_to_the_chat_base() {
+    let mut c = cfg(ProviderKind::Openai);
+    c.provider.base_url = "http://127.0.0.1:8795/v1/".to_string();
+    c.provider.stt_base_url = String::new();
+    let http = FakeHttp::json(200, r#"{"text":"hello"}"#);
+    let clip = AudioClip {
+        pcm: vec![0i16; 160],
+        sample_rate: 16_000,
+        channels: 1,
+    };
+    let t = openai::OpenAiStt::new(http.clone(), c, key())
+        .transcribe(&clip, None)
+        .unwrap();
+    assert_eq!(t.text, "hello");
+    assert_eq!(
+        http.url().as_deref(),
+        Some("http://127.0.0.1:8795/v1/audio/transcriptions")
+    );
 }

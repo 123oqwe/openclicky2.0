@@ -271,19 +271,7 @@ impl Transcriber for OpenAiStt {
             content_type: "audio/wav".into(),
             bytes: encode_wav(clip),
         });
-        let base = if self.config.provider.stt_base_url.is_empty() {
-            self.config
-                .provider
-                .base_url
-                .trim_end_matches('/')
-                .to_string()
-        } else {
-            self.config
-                .provider
-                .stt_base_url
-                .trim_end_matches('/')
-                .to_string()
-        };
+        let base = self.config.stt_endpoint_base().trim_end_matches('/');
         let headers = vec![(
             "Authorization".into(),
             format!("Bearer {}", self.key.expose()),
