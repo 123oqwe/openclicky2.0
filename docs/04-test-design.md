@@ -281,6 +281,8 @@
 | `plan_injection` | 有意的听写才走键盘 | `crates/core/src/text.rs::an_editor_receives_keystrokes_when_the_text_was_asked_for` |
 | `plan_injection` | 兜底回答只复制，永不敲 | `crates/core/src/text.rs::a_fallback_answer_is_copied_and_never_typed` |
 | `TextInjector::copy` | TTS 失败时不在键盘路径注入，回答进剪贴板 | `crates/core/tests/e2e_ask.rs::silent_tts_falls_back_to_text_and_clipboard` |
+| `conversation_session` | 30 分钟内两次提问共用一个 session，第二次请求带上一轮 | `crates/core/tests/e2e_ask.rs::a_follow_up_shares_the_session_and_sees_the_earlier_turn` |
+| `conversation_session` | 间隔超过窗口就换新 session | `crates/core/tests/e2e_ask.rs::a_long_gap_starts_a_new_conversation` |
 | `durable` | 文件存储持久；钥匙串拒写后不持久；两者组合的四种取值 | `crates/platform/src/secrets.rs::durability_is_decided_by_the_file_store_and_the_keychain` |
 | `is_durable` | 只剩内存时不得自称已保存 | `::a_store_that_cannot_persist_does_not_call_itself_durable` |
 | `allow_file_store` | 显式落盘后新进程仍读得到（文件即开关） | `::an_opted_in_store_is_still_opted_in_after_a_restart` |

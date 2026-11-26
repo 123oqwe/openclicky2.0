@@ -374,3 +374,65 @@ fn cancelling_a_typed_answer_stops_the_stream_and_charges_nothing() {
         .unwrap();
     assert!(rows.is_empty(), "a canceled answer costs nothing");
 }
+
+#[test]
+fn a_follow_up_shares_the_session_and_sees_the_earlier_turn() {
+    let h = harness(HarnessOpts {
+        transcript: "把那个框做大一点".into(),
+        chat: vec![
+            ScriptedChat::text("好了。"),
+            ScriptedChat::text("再大一点也可以。"),
+        ],
+        ..Default::default()
+    });
+    let engine = VoiceEngine::new(h.deps.clone());
+
+    engine.on_hotkey_down().unwrap();
+    let first = engine.on_hotkey_up().unwrap();
+    engine.on_hotkey_down().unwrap();
+    let second = engine.on_hotkey_up().unwrap();
+
+    assert_eq!(
+        first.session_id, second.session_id,
+        "a second question within the window must continue the same conversation"
+    );
+
+    let rows = h.store.recent_messages(&second.session_id, 10).unwrap();
+    assert!(
+        rows.len() >= 3,
+        "the second turn should carry the transcript, the answer and the new question, got {}",
+        rows.len()
+    );
+    let last = h.chat.last_request().expect("a second request");
+    assert!(
+        last.messages.len() >= 3,
+        "the second request must include the earlier turn, got {}",
+        last.messages.len()
+    );
+}
+
+#[test]
+fn a_long_gap_starts_a_new_conversation() {
+    let h = harness(HarnessOpts {
+        transcript: "现在几点了".into(),
+        chat: vec![
+            ScriptedChat::text("三点。"),
+            ScriptedChat::text("还是三点。"),
+        ],
+        ..Default::default()
+    });
+    let engine = VoiceEngine::new(h.deps.clone());
+
+    engine.on_hotkey_down().unwrap();
+    let first = engine.on_hotkey_up().unwrap();
+
+    h.clock.advance(chrono::Duration::hours(2));
+
+    engine.on_hotkey_down().unwrap();
+    let second = engine.on_hotkey_up().unwrap();
+
+    assert_ne!(
+        first.session_id, second.session_id,
+        "two hours later is a different conversation, not a follow-up"
+    );
+}

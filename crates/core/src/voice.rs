@@ -62,9 +62,20 @@ pub struct AskOutcome {
     pub timings: Timings,
 }
 
+/// One conversation survives for this long after it starts. Every request used to
+/// get its own session, so the history lookup below always found nothing and the
+/// model could not follow "make it bigger" after "move the box".
+const CONVERSATION_TTL_SECS: i64 = 30 * 60;
+
+struct Conversation {
+    id: String,
+    started: chrono::DateTime<chrono::Utc>,
+}
+
 pub struct VoiceEngine {
     deps: Arc<Deps>,
     state: Mutex<State>,
+    conversation: Mutex<Option<Conversation>>,
     cancel: Arc<AtomicBool>,
     /// The utterance currently playing, so a new press can stop it.
     speech: Mutex<Option<Box<dyn crate::ports::SpeechHandle>>>,
@@ -75,6 +86,7 @@ impl VoiceEngine {
         Self {
             deps,
             state: Mutex::new(State::Idle),
+            conversation: Mutex::new(None),
             cancel: Arc::new(AtomicBool::new(false)),
             speech: Mutex::new(None),
         }
@@ -115,6 +127,27 @@ impl VoiceEngine {
 
     /// Reset the cancel flag for a brand new request. Safe because an interrupted
     /// previous stream had the whole key-hold to notice its own cancellation.
+    /// The session a turn belongs to. Reusing one for a while is what makes a
+    /// follow-up a follow-up instead of a stranger's question.
+    fn conversation_session(&self, kind: &str) -> Result<String> {
+        let now = self.deps.clock.now();
+        {
+            let slot = self.conversation.lock().unwrap();
+            if let Some(current) = slot.as_ref() {
+                let age = now.signed_duration_since(current.started).num_seconds();
+                if (0..CONVERSATION_TTL_SECS).contains(&age) {
+                    return Ok(current.id.clone());
+                }
+            }
+        }
+        let id = self.deps.store.insert_session(kind, now)?;
+        *self.conversation.lock().unwrap() = Some(Conversation {
+            id: id.clone(),
+            started: now,
+        });
+        Ok(id)
+    }
+
     fn begin_request(&self) {
         // A new press interrupts the previous answer, spoken or streaming.
         if let Some(handle) = self.speech.lock().unwrap().take() {
@@ -155,7 +188,7 @@ impl VoiceEngine {
         self.begin_request();
 
         let config = self.deps.config_snapshot();
-        let session_id = self.deps.store.insert_session("ask", Utc::now())?;
+        let session_id = self.conversation_session("ask")?;
 
         // Capture is authorised here and nowhere else (TR-02).
         if !self.deps.permissions.screen_recording() {
@@ -500,7 +533,7 @@ impl VoiceEngine {
         let started_at = self.deps.clock.now();
         self.set_state(State::Thinking);
         let config = self.deps.config_snapshot();
-        let session_id = self.deps.store.insert_session("typed", Utc::now())?;
+        let session_id = self.conversation_session("typed")?;
 
         // A typed question may point at the screen too (SRC-PRD C4). Capture
         // still goes through the single gate; without permission we answer

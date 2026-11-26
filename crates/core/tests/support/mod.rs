@@ -567,6 +567,7 @@ impl CommandRunner for FakeCommands {
 
 pub struct Harness {
     pub deps: Arc<Deps>,
+    pub clock: Arc<FakeClock>,
     pub screen: Arc<FakeScreen>,
     pub audio: Arc<FakeAudio>,
     pub chat: Arc<ScriptedChat>,
@@ -636,7 +637,9 @@ pub fn harness(opts: HarnessOpts) -> Harness {
     let workspace = dir.path().join("workspace");
     std::fs::create_dir_all(&workspace).unwrap();
 
+    let clock = FakeClock::new();
     let deps = Deps::new(
+        clock.clone(),
         screen.clone(),
         audio.clone(),
         stt,
@@ -653,6 +656,7 @@ pub fn harness(opts: HarnessOpts) -> Harness {
 
     Harness {
         deps,
+        clock,
         screen,
         audio,
         chat,
