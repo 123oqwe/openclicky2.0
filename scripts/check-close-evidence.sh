@@ -44,12 +44,18 @@ close_targets() {
     | sort -un
 }
 
+# The three things the guard says. None of them puts a keyword form directly
+# before a number: `close #117` is itself a closing keyword, so a message written
+# the obvious way cannot be quoted in the pull request it refused. Twice it could
+# not. self_test asserts these three stay clean, which means defining them before
+# the dispatch rather than beside the loop that prints them.
+note_allowed()     { echo "ok: #$1 carries $2 comment(s), so closing it is allowed"; }
+note_unreadable()  { echo "::error::#$1 cannot be read (missing, or invisible to this token), so this body cannot be trusted to close it. Use Refs #$1, or open the issue first."; }
+note_no_evidence() { echo "::error::#$1 would be closed by this body on merge, and #$1 has no comment at all. An issue needs an evidence comment first: paste the command you ran and its output into it. Otherwise write Refs #$1 and let a human decide."; }
+
 # A guard that cannot match proves nothing, so this asserts the whole keyword
 # table instead of the three forms whoever wrote the regular expression
 # happened to remember. No network, no gh.
-#
-# Nothing here prints a keyword next to its number: the output has to survive
-# being pasted into the pull request body it is about.
 self_test() {
   fail=0
   for word in close closes closed fix fixes fixed resolve resolves resolved; do
@@ -74,6 +80,20 @@ Refs #42
 closing #42
 closes #forty-two
 CASES
+  for own in "$(note_allowed 42 1)" "$(note_unreadable 42)" "$(note_no_evidence 42)"; do
+    targets=$(close_targets "$own")
+    # An empty message passes close_targets, so an empty one would make this
+    # check green while proving nothing.
+    if [ -z "$own" ]; then
+      echo "FAIL a message the guard prints came out empty, so the check below is vacuous"
+      fail=1
+    elif [ -z "$targets" ]; then
+      echo "ok   own output is pasteable: $own"
+    else
+      echo "FAIL a body quoting the guard would be blocked by it: $own"
+      fail=1
+    fi
+  done
   if [ "$fail" -ne 0 ]; then
     echo "close-evidence self-test: FAILED"
     exit 1
@@ -107,19 +127,19 @@ if [ -z "$numbers" ]; then
   exit 0
 fi
 
+# The three things the guard says. These are printed by the loop below.
+
 fail=0
 for n in $numbers; do
   count=$(gh issue view "$n" --json comments --jq '.comments | length' 2>/dev/null) || count=""
-  # No keyword next to a number in these messages, on purpose: the guard's own
-  # output has to be pasteable into the pull request body it just refused.
   if [ -z "$count" ]; then
-    echo "::error::the body asks GitHub to close #$n, but #$n cannot be read (missing, or invisible to this token). That is not evidence either. Use Refs #$n, or open the issue first."
+    note_unreadable "$n"
     fail=1
   elif [ "$count" -eq 0 ]; then
-    echo "::error::the body asks GitHub to close #$n on merge, and #$n has no comment at all. An issue needs an evidence comment first: paste the command you ran and its output into #$n. Otherwise write Refs #$n and let a human decide."
+    note_no_evidence "$n"
     fail=1
   else
-    echo "ok: #$n carries $count comment(s), so closing it is allowed"
+    note_allowed "$n" "$count"
   fi
 done
 
