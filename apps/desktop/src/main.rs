@@ -318,16 +318,41 @@ fn save_provider(
     key: Option<String>,
     model: String,
 ) -> Result<(), String> {
-    if let Some(k) = key.filter(|k| !k.trim().is_empty()) {
+    let candidate = key.filter(|k| !k.trim().is_empty());
+    let mut cfg = state.config.read().unwrap().clone();
+    cfg.provider.chat_model = model.trim().to_string();
+    let target = providers::describe_target(&cfg);
+
+    // Prove the key and the model before either is written. A save that fails
+    // must leave the previous, working configuration untouched, so nothing below
+    // this point runs until the check passes.
+    let checked = match candidate.as_deref() {
+        Some(k) => providers::check_save(&cfg, state.http.clone(), Some(&k.into()), &model),
+        None => match state.secrets.get(providers::KEY_NAME) {
+            Ok(Some(stored)) => {
+                providers::check_save(&cfg, state.http.clone(), Some(&stored), &model)
+            }
+            _ => Err(openclicky_core::Error::NoApiKey),
+        },
+    };
+    checked.map_err(|e| format!("{} ({}) — {}", e.user_message(), e.code(), target))?;
+
+    if let Some(k) = candidate {
         state
             .secrets
             .set(providers::KEY_NAME, &k.as_str().into())
             .map_err(|e| e.user_message())?;
+        if !state.secrets.is_durable() {
+            return Err(
+                "这个系统没有接受写入钥匙串,key 会在这个进程结束时消失。点下面的按钮改为存到加密文件。(E_KEY_NOT_STORED)"
+                    .to_string(),
+            );
+        }
     }
-    let mut cfg = state.config.write().unwrap();
-    cfg.provider.chat_model = model.trim().to_string();
     cfg.save(&state.paths.config_file())
-        .map_err(|e| e.user_message())
+        .map_err(|e| e.user_message())?;
+    *state.config.write().unwrap() = cfg;
+    Ok(())
 }
 
 #[tauri::command]
@@ -488,6 +513,16 @@ fn open_privacy_pane(anchor: &str) {
 #[cfg(not(target_os = "macos"))]
 fn open_privacy_pane(_anchor: &str) {}
 
+/// The recovery path when the system keychain refuses the write. Explicit,
+/// because it puts the key on disk.
+#[tauri::command]
+fn allow_file_store(state: TauriState<'_, AppState>) -> Result<(), String> {
+    state
+        .secrets
+        .allow_file_store()
+        .map_err(|e| e.user_message())
+}
+
 fn reveal_main(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -545,6 +580,7 @@ fn main() {
             answer_question,
             permissions,
             request_permission,
+            allow_file_store,
             create_task,
             approve_task,
             deny_task,

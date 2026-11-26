@@ -30,11 +30,18 @@ const NONCE_LEN: usize = 12;
 const HEADER_LEN: usize = 8 + SALT_LEN + NONCE_LEN;
 const KEY_LABEL: &[u8] = b"openclicky-secrets-file-v2";
 
+/// The whole durability rule, in one place and with no state to set up. A file
+/// store survives by definition. Otherwise survival depends on the keychain
+/// having accepted a write, which `degraded` records.
+fn durable(file_store: bool, degraded: bool) -> bool {
+    file_store || !degraded
+}
+
 pub struct PlatformSecrets {
     fallback_path: PathBuf,
     /// Set when the OS keychain is unavailable or failed a read-back.
     degraded: AtomicBool,
-    file_store: bool,
+    file_store: AtomicBool,
     memory: Mutex<HashMap<String, Vec<u8>>>,
 }
 
@@ -45,13 +52,17 @@ impl PlatformSecrets {
 
     fn open(data_dir: &Path, degraded: bool) -> Self {
         std::fs::create_dir_all(data_dir).ok();
+        let fallback_path = data_dir.join("secrets.enc");
+        // The file's existence is the opt-in. Nothing creates it except an
+        // explicit request, and remembering the decision in a second place would
+        // let the two disagree.
+        let file_store = AtomicBool::new(fallback_path.exists());
         Self {
-            fallback_path: data_dir.join("secrets.enc"),
+            fallback_path,
             // Off the keychain the file is only a fallback; degraded means there
             // is no keychain at all, so nothing touches disk until opt-in.
             degraded: AtomicBool::new(degraded),
-            // Nothing touches disk until the user opts in.
-            file_store: false,
+            file_store,
             memory: Mutex::new(HashMap::new()),
         }
     }
@@ -63,26 +74,27 @@ impl PlatformSecrets {
     /// True when secrets are memory-only and the caller could still opt in to
     /// writing them to disk. The UI is expected to ask before that happens.
     pub fn needs_opt_in(&self) -> bool {
-        self.is_degraded() && !self.file_store
+        self.is_degraded() && !self.file_store.load(Ordering::Relaxed)
     }
 
     /// Start persisting to `secrets.enc`, carrying over anything already held in
     /// memory so an opt-in does not lose a key the user just typed.
-    pub fn opt_in_file_store(&mut self) -> Result<()> {
-        if self.file_store {
+    pub fn opt_in_file_store(&self) -> Result<()> {
+        if self.file_store.load(Ordering::Relaxed) {
             return Ok(());
         }
         let pending = self.memory_snapshot();
-        if !pending.is_empty() {
-            let mut items = self.read_store();
-            for (key, value) in &pending {
-                items.retain(|(k, _)| k != key);
-                items.push((key.clone(), value.clone()));
-            }
-            self.write_store(&items)?;
+        // Write even when nothing is pending: the file's existence is what
+        // remembers the opt-in, so opting in before typing a key must still
+        // leave a marker behind.
+        let mut items = self.read_store();
+        for (key, value) in &pending {
+            items.retain(|(k, _)| k != key);
+            items.push((key.clone(), value.clone()));
         }
+        self.write_store(&items)?;
         self.memory().clear();
-        self.file_store = true;
+        self.file_store.store(true, Ordering::Relaxed);
         Ok(())
     }
 
@@ -223,8 +235,13 @@ impl Secrets for PlatformSecrets {
     fn get(&self, key: &str) -> Result<Option<SecretString>> {
         #[cfg(not(target_os = "linux"))]
         if !self.is_degraded() {
-            if let Ok(Some(v)) = keychain::get(key) {
-                return Ok(Some(SecretString::from(v)));
+            match keychain::get(key) {
+                Ok(Some(v)) => return Ok(Some(SecretString::from(v))),
+                Ok(None) => {}
+                // A store that cannot be read is not a store that answered
+                // "no key". Claiming durability after a failed read would
+                // report a key as saved that the next process cannot find.
+                Err(_) => self.degraded.store(true, Ordering::Relaxed),
             }
         }
         if let Some(bytes) = self.memory().get(key) {
@@ -232,7 +249,7 @@ impl Secrets for PlatformSecrets {
                 String::from_utf8_lossy(bytes).to_string(),
             )));
         }
-        if self.file_store {
+        if self.file_store.load(Ordering::Relaxed) {
             return Ok(self.file_get(key)?.map(SecretString::from));
         }
         Ok(None)
@@ -251,12 +268,20 @@ impl Secrets for PlatformSecrets {
             // usable keychain and keep the secret in memory.
             self.degraded.store(true, Ordering::Relaxed);
         }
-        if self.file_store {
+        if self.file_store.load(Ordering::Relaxed) {
             return self.file_set(key, value.expose());
         }
         self.memory()
             .insert(key.to_string(), value.expose().as_bytes().to_vec());
         Ok(())
+    }
+
+    fn is_durable(&self) -> bool {
+        durable(self.file_store.load(Ordering::Relaxed), self.is_degraded())
+    }
+
+    fn allow_file_store(&self) -> Result<()> {
+        self.opt_in_file_store()
     }
 
     fn delete(&self, key: &str) -> Result<()> {
@@ -265,7 +290,7 @@ impl Secrets for PlatformSecrets {
             let _ = keychain::delete(key);
         }
         self.memory().remove(key);
-        if self.file_store {
+        if self.file_store.load(Ordering::Relaxed) {
             return self.file_delete(key);
         }
         Ok(())
@@ -362,9 +387,51 @@ mod tests {
 
     fn disk_store() -> (tempfile::TempDir, PlatformSecrets) {
         let dir = tempfile::tempdir().unwrap();
-        let mut store = PlatformSecrets::open(dir.path(), false);
+        let store = PlatformSecrets::open(dir.path(), false);
         store.opt_in_file_store().unwrap();
         (dir, store)
+    }
+
+    #[test]
+    fn an_opted_in_store_is_still_opted_in_after_a_restart() {
+        let (dir, store) = disk_store();
+        store
+            .set("provider/default", &SecretString::from("sk-test"))
+            .unwrap();
+        let restarted = PlatformSecrets::new(dir.path());
+        assert!(
+            restarted.is_durable(),
+            "the file is the opt-in, so a new instance inherits the decision"
+        );
+        assert_eq!(
+            restarted.get("provider/default").unwrap().unwrap().expose(),
+            "sk-test"
+        );
+    }
+
+    #[test]
+    fn durability_is_decided_by_the_file_store_and_the_keychain() {
+        assert!(
+            durable(true, true),
+            "a file store survives without a keychain"
+        );
+        assert!(durable(true, false));
+        assert!(
+            durable(false, false),
+            "an accepted keychain write survives this process"
+        );
+        assert!(
+            !durable(false, true),
+            "memory dies with the process, so nothing was stored"
+        );
+    }
+
+    #[test]
+    fn a_store_that_cannot_persist_does_not_call_itself_durable() {
+        let (_dir, store) = memory_only();
+        assert!(!store.is_durable(), "memory dies with the process");
+        let (_dir, on_disk) = disk_store();
+        assert!(on_disk.is_durable());
     }
 
     #[test]
@@ -384,7 +451,7 @@ mod tests {
 
     #[test]
     fn opt_in_moves_memory_secrets_to_a_private_file() {
-        let (dir, mut store) = memory_only();
+        let (dir, store) = memory_only();
         store.set("a", &"one".into()).unwrap();
         store.set("b", &"two".into()).unwrap();
         store.opt_in_file_store().unwrap();
@@ -399,7 +466,7 @@ mod tests {
             assert_eq!(mode, 0o600, "store file must be owner-only");
         }
 
-        let mut reopened = PlatformSecrets::open(dir.path(), true);
+        let reopened = PlatformSecrets::open(dir.path(), true);
         reopened.opt_in_file_store().unwrap();
         assert_eq!(reopened.get("a").unwrap().unwrap().expose(), "one");
         assert_eq!(reopened.get("b").unwrap().unwrap().expose(), "two");
@@ -407,7 +474,7 @@ mod tests {
 
     #[test]
     fn an_opt_in_store_deletes_from_both_places() {
-        let (_dir, mut store) = memory_only();
+        let (_dir, store) = memory_only();
         store.set("k", &"value".into()).unwrap();
         store.opt_in_file_store().unwrap();
         store.delete("k").unwrap();

@@ -156,6 +156,19 @@ pub trait Secrets: Send + Sync {
     fn get(&self, key: &str) -> Result<Option<SecretString>>;
     fn set(&self, key: &str, value: &SecretString) -> Result<()>;
     fn delete(&self, key: &str) -> Result<()>;
+    /// Whether a value written now survives this process. A store that cannot
+    /// keep the key must not report a save, because the user will restart the
+    /// app and find the key gone with no clue why.
+    fn is_durable(&self) -> bool {
+        true
+    }
+    /// Ask the store to keep secrets in a local encrypted file instead of the
+    /// system keychain. Only a store that has such a fallback accepts.
+    fn allow_file_store(&self) -> Result<()> {
+        Err(crate::error::Error::BadRequest(
+            "this key store has no file fallback".into(),
+        ))
+    }
 }
 
 // ---------------------------------------------------------------- screen

@@ -340,12 +340,32 @@ const T = window.__TAURI__;
       }
     };
 
+    async function saveProvider() {
+      await invoke('save_provider', { key: $('key').value, model: $('models').value });
+      $('key').value = '';
+      await refresh();
+    }
+
+    // A keychain that refuses the write is not a failure the user can retry.
+    // Offering the encrypted file is the only way forward, and it is opt-in
+    // because it puts the key on disk.
+    function offerFileStore() {
+      const host = $('fetchMsg');
+      host.textContent = '';
+      host.append(act('改为存到加密文件', async () => {
+        await invoke('allow_file_store');
+        await saveProvider();
+      }));
+    }
+
     $('save').onclick = async () => {
       try {
-        await invoke('save_provider', { key: $('key').value, model: $('models').value });
-        $('key').value = '';
-        await refresh();
-      } catch (e) { showError(e); }
+        await saveProvider();
+      } catch (e) {
+        const text = String(e && e.message ? e.message : e);
+        showError(e);
+        if (text.includes('E_KEY_NOT_STORED')) offerFileStore();
+      }
     };
 
     $('send').onclick = async () => {

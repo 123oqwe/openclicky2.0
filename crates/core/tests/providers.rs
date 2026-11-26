@@ -246,3 +246,81 @@ fn wav_header_is_well_formed() {
     assert_eq!(&wav[8..12], b"WAVE");
     assert_eq!(wav.len(), 44 + 320);
 }
+
+#[test]
+fn an_unchosen_model_still_checks_the_key() {
+    let config = Config::load(Path::new("/nonexistent/openclicky.toml")).unwrap();
+    let key = SecretString::from("sk-good");
+    let models = openclicky_core::providers::check_save(
+        &config,
+        FakeHttp::json(200, r#"{"data":[{"id":"gpt-real"}]}"#),
+        Some(&key),
+        "",
+    )
+    .expect("an empty model does not skip the check");
+    assert_eq!(models, vec!["gpt-real".to_string()]);
+
+    let refused = openclicky_core::providers::check_save(
+        &config,
+        FakeHttp::json(401, r#"{"error":{"message":"nope"}}"#),
+        Some(&key),
+        "",
+    );
+    assert_eq!(
+        refused.unwrap_err().code(),
+        "E_AUTH",
+        "a dead key must fail even with no model chosen"
+    );
+}
+
+#[test]
+fn a_refused_key_fails_the_save_check() {
+    let config = Config::load(Path::new("/nonexistent/openclicky.toml")).unwrap();
+    let key = SecretString::from("sk-wrong");
+    let denied = openclicky_core::providers::check_save(
+        &config,
+        FakeHttp::json(401, r#"{"error":{"message":"invalid api key"}}"#),
+        Some(&key),
+        "gpt-test",
+    );
+    assert_eq!(denied.unwrap_err().code(), "E_AUTH");
+}
+
+#[test]
+fn a_model_outside_the_list_is_refused_before_it_is_saved() {
+    let config = Config::load(Path::new("/nonexistent/openclicky.toml")).unwrap();
+    let key = SecretString::from("sk-good");
+    let err = openclicky_core::providers::check_save(
+        &config,
+        FakeHttp::json(200, r#"{"data":[{"id":"gpt-real"}]}"#),
+        Some(&key),
+        "gpt-imaginary",
+    )
+    .unwrap_err();
+    assert!(
+        err.user_message().contains("gpt-imaginary"),
+        "the message must name the model that is missing: {}",
+        err.user_message()
+    );
+
+    let ok = openclicky_core::providers::check_save(
+        &config,
+        FakeHttp::json(200, r#"{"data":[{"id":"gpt-real"}]}"#),
+        Some(&key),
+        "gpt-real",
+    )
+    .expect("a model in the list passes");
+    assert_eq!(ok, vec!["gpt-real".to_string()]);
+}
+
+#[test]
+fn the_target_is_named_so_a_refusal_points_at_one_endpoint() {
+    let mut config = Config::load(Path::new("/nonexistent/openclicky.toml")).unwrap();
+    config.provider.base_url = "https://example.test/v1".into();
+    let target = openclicky_core::providers::describe_target(&config);
+    assert!(target.contains("openai"), "provider missing from {target}");
+    assert!(
+        target.contains("https://example.test/v1"),
+        "base_url missing from {target}"
+    );
+}
