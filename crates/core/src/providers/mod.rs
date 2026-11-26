@@ -120,6 +120,37 @@ pub fn describe_target(config: &Config) -> String {
     )
 }
 
+/// Two attempts after the first, at half a second and two seconds. The first
+/// retry catches a dropped connection, the second a brief provider hiccup. A
+/// third would mostly buy latency: the errors worth retrying here are ones the
+/// provider itself reports as temporary, and it recovers in seconds or not at
+/// all. Streaming is never retried, because a stream that already emitted text
+/// cannot be replayed without duplicating it.
+fn retry_delays() -> [std::time::Duration; 2] {
+    [
+        std::time::Duration::from_millis(500),
+        std::time::Duration::from_secs(2),
+    ]
+}
+
+pub(crate) fn with_retries<T>(mut op: impl FnMut() -> Result<T>) -> Result<T> {
+    let mut delays = retry_delays().into_iter();
+    loop {
+        match op() {
+            Ok(value) => return Ok(value),
+            Err(error) => {
+                if !error.retryable() {
+                    return Err(error);
+                }
+                match delays.next() {
+                    Some(delay) => std::thread::sleep(delay),
+                    None => return Err(error),
+                }
+            }
+        }
+    }
+}
+
 pub(crate) fn region_blocked(status: u16, body: &str) -> bool {
     let b = body.to_lowercase();
     status == 403

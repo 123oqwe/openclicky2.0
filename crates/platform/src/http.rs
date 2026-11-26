@@ -18,7 +18,13 @@ impl UreqTransport {
                 // A redirect could bounce a checked public URL to 127.0.0.1.
                 // Follow none; callers see the 3xx and decide.
                 .redirects(0)
-                .timeout_read(Duration::from_secs(30))
+                // No read timeout here on purpose. Every call already passes its
+                // own `Request::timeout`, and that one covers the whole call.
+                // An agent-level read timeout of 30s was shorter than the 180s a
+                // chat request asks for, so a model that thought for more than
+                // thirty seconds before its first byte was reported as a failure
+                // with 150 seconds still on the clock. Two timeouts where the
+                // shorter one wins is one timeout too many.
                 .build(),
         }
     }
