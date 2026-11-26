@@ -47,16 +47,25 @@ the prompt, listed below.
 
 ## Where it stays on disk
 
-Paths come from `crates/platform/src/paths.rs`. `openclicky doctor` prints both directories
-for your machine.
+`crates/platform/src/paths.rs` asks the operating system for two directories and appends
+`openclicky` to each. On macOS both answers are the same directory. On Linux and Windows
+they are two. `openclicky doctor` prints both for your machine, as `config:` and `data:`.
+
+| | Settings | Data |
+|---|---|---|
+| macOS | `~/Library/Application Support/openclicky/` | the same directory |
+| Linux | `~/.config/openclicky/` | `~/.local/share/openclicky/` |
+| Windows | `%APPDATA%\openclicky\` | `%LOCALAPPDATA%\openclicky\` |
+
+The paths below are written relative to those two, as `config/` and `data/`.
 
 | What | Where |
 |---|---|
-| Settings | `config.toml` in the config directory |
-| Conversation history, tasks, usage | `app.db` (SQLite) in the data directory |
-| Things you asked it to remember | `memory/profile.md`, `memory/projects.md` |
-| Files a background task produced | `workspace/` |
-| The API key | the OS key store, or `secrets.enc` at mode 0600 |
+| Settings | `config/config.toml` |
+| Conversation history, tasks, usage | `data/app.db` |
+| Things you asked it to remember | `data/memory/profile.md`, `data/memory/projects.md` |
+| Files a background task produced | `data/workspace/` |
+| The API key | the OS key store, or `data/secrets.enc` at mode 0600 |
 
 `app.db` holds:
 
