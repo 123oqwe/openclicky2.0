@@ -46,14 +46,16 @@ fi
 fail=0
 for n in $numbers; do
   count=$(gh issue view "$n" --json comments --jq '.comments | length' 2>/dev/null) || count=""
+  # No keyword next to a number in these messages, on purpose: the guard's own
+  # output has to be pasteable into the pull request body it just refused.
   if [ -z "$count" ]; then
-    echo "::error::the body closes #$n, but #$n cannot be read. An issue that does not exist (or that this token cannot see) is not evidence either. Use Refs #$n, or open the issue first."
+    echo "::error::the body asks GitHub to close #$n, but #$n cannot be read (missing, or invisible to this token). That is not evidence either. Use Refs #$n, or open the issue first."
     fail=1
   elif [ "$count" -eq 0 ]; then
-    echo "::error::the body says it closes #$n, and #$n has no comment at all. Closing an issue needs an evidence comment first: paste the command you ran and its output into #$n. Otherwise write Refs #$n and let a human decide."
+    echo "::error::the body asks GitHub to close #$n on merge, and #$n has no comment at all. An issue needs an evidence comment first: paste the command you ran and its output into #$n. Otherwise write Refs #$n and let a human decide."
     fail=1
   else
-    echo "ok: #$n carries $count comment(s), so the body may close it"
+    echo "ok: #$n carries $count comment(s), so closing it is allowed"
   fi
 done
 
