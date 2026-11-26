@@ -1,26 +1,53 @@
 const T = window.__TAURI__;
     const listen = T.event.listen;
+    const appWindow = T.window.getCurrentWindow();
+    const { overlayTransform } = window.overlayCoords;
     const canvas = document.getElementById('c');
     const ctx = canvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
 
     let last = null;
+    let origin = { x: 0, y: 0 };
+    let settled = Promise.resolve();
 
-    function resize() {
+    function applyTransform() {
+      const t = overlayTransform(dpr, origin.x, origin.y);
+      ctx.setTransform(t.a, t.b, t.c, t.d, t.e, t.f);
+    }
+
+    // Asked for on every resize, because the origin is not a constant: the system
+    // clamps the window below the menu bar, the user drags it to another display,
+    // a display gets plugged in.
+    async function readOrigin() {
+      try {
+        const pos = await appWindow.outerPosition();
+        return { x: pos.x / dpr, y: pos.y / dpr };
+      } catch (err) {
+        console.warn('overlay: no window origin available, drawing from 0,0', err);
+        return { x: 0, y: 0 };
+      }
+    }
+
+    async function resize() {
+      origin = await readOrigin();
       canvas.width = innerWidth * dpr;
       canvas.height = innerHeight * dpr;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      applyTransform();
       // Sizing a canvas erases it, and a window resize is the one thing that
       // happens while a pointer is already on screen.
       if (last) paint(last);
     }
-    resize();
-    addEventListener('resize', resize);
+    settled = resize();
+    addEventListener('resize', () => { settled = resize(); });
 
     let raf = 0;
 
     function paint(plan) {
-      ctx.clearRect(0, 0, innerWidth, innerHeight);
+      // Clearing runs without the transform: with it on, the wipe starts at the
+      // window origin's negative and leaves a strip of the previous frame.
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      applyTransform();
       ctx.lineWidth = 3;
       ctx.strokeStyle = '#ffd166';
       ctx.font = '600 13px -apple-system, system-ui, sans-serif';
@@ -39,9 +66,13 @@ const T = window.__TAURI__;
       }
     }
 
-    function draw(plan) {
+    async function draw(plan) {
       cancelAnimationFrame(raf);
       last = plan;
+      // The plan arrives in screen points and the canvas needs the window origin
+      // to place them; waiting here is what keeps the first frame from being the
+      // only one drawn 33 points off.
+      await settled;
       let t = 0;
       const stroke = () => {
         paint(plan);
@@ -75,5 +106,6 @@ const T = window.__TAURI__;
     await listen('pointer-plan', (e) => draw(e.payload));
     await listen('pointer-clear', () => {
       last = null;
-      ctx.clearRect(0, 0, innerWidth, innerHeight);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
     });
