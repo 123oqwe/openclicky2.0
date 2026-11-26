@@ -138,7 +138,7 @@ impl TextInjector for PlatformInjector {
         if text.is_empty() {
             return Ok(InjectOutcome::Typed);
         }
-        match openclicky_core::text::plan_injection(text, target.kind.clone(), true) {
+        match openclicky_core::text::plan_injection(text, target.kind, true) {
             openclicky_core::text::Injection::Type(payload) => {
                 if let Ok(mut enigo) = Enigo::new(&Settings::default()) {
                     if enigo.text(&payload).is_ok() {
@@ -161,7 +161,8 @@ impl TextInjector for PlatformInjector {
 
 impl PlatformInjector {
     fn copy_only(&self, text: &str) -> Result<InjectOutcome> {
-        let mut clipboard = arboard::Clipboard::new().map_err(|e| Error::Internal(e.to_string()))?;
+        let mut clipboard =
+            arboard::Clipboard::new().map_err(|e| Error::Internal(e.to_string()))?;
         clipboard
             .set_text(text.to_string())
             .map_err(|e| Error::Internal(e.to_string()))?;

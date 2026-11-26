@@ -45,7 +45,6 @@ pub fn apply_dictionary(text: &str, dict: &[(String, String)]) -> String {
     out
 }
 
-
 pub fn looks_secret(text: &str) -> bool {
     let lower = text.to_lowercase();
     const WORDS: [&str; 8] = [

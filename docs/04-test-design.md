@@ -277,6 +277,10 @@
 | `describe_target` | 提示里有 provider 名与 base_url | `::the_target_is_named_so_a_refusal_points_at_one_endpoint` |
 | `save_provider` | 被拒的保存不改写还能用的配置文件，也不写钥匙串 | `::a_refused_save_leaves_the_working_config_file_alone` |
 | `save_provider` | 通过的保存写模型并存入 key | `::an_accepted_save_writes_the_model_and_stores_the_key` |
+| `plan_injection` | 终端永不逐字敲，只粘贴压平后的文本 | `crates/core/src/text.rs::a_terminal_never_receives_typed_text` |
+| `plan_injection` | 有意的听写才走键盘 | `crates/core/src/text.rs::an_editor_receives_keystrokes_when_the_text_was_asked_for` |
+| `plan_injection` | 兜底回答只复制，永不敲 | `crates/core/src/text.rs::a_fallback_answer_is_copied_and_never_typed` |
+| `TextInjector::copy` | TTS 失败时不在键盘路径注入，回答进剪贴板 | `crates/core/tests/e2e_ask.rs::silent_tts_falls_back_to_text_and_clipboard` |
 | `durable` | 文件存储持久；钥匙串拒写后不持久；两者组合的四种取值 | `crates/platform/src/secrets.rs::durability_is_decided_by_the_file_store_and_the_keychain` |
 | `is_durable` | 只剩内存时不得自称已保存 | `::a_store_that_cannot_persist_does_not_call_itself_durable` |
 | `allow_file_store` | 显式落盘后新进程仍读得到（文件即开关） | `::an_opted_in_store_is_still_opted_in_after_a_restart` |

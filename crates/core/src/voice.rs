@@ -12,7 +12,7 @@ use chrono::Utc;
 use crate::annotations::{self, ParsedReply};
 use crate::deps::Deps;
 use crate::error::{Error, Result};
-use crate::ports::{ChatMessage, ChatRequest, Role, SpeechOptions, TargetKind};
+use crate::ports::{ChatMessage, ChatRequest, Role, SpeechOptions};
 use crate::privacy::CaptureReason;
 use crate::prompt::{self, PromptContext};
 use crate::router::{self, RouteInput};

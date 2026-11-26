@@ -103,10 +103,17 @@ fn silent_tts_falls_back_to_text_and_clipboard() {
     let outcome = engine.on_hotkey_up().unwrap();
 
     assert!(h.speech.said().is_empty());
-    let injected = h.injector.texts();
     assert!(
-        injected.iter().any(|t| { t == &outcome.answer_text }),
-        "answer must reach the clipboard path"
+        h.injector.texts().is_empty(),
+        "a fallback answer must never be typed, got {:?}",
+        h.injector.texts()
+    );
+    assert!(
+        h.injector
+            .copied()
+            .iter()
+            .any(|t| t == &outcome.answer_text),
+        "answer must still reach the clipboard"
     );
 }
 
