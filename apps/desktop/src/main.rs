@@ -436,28 +436,21 @@ fn permissions() -> serde_json::Value {
     permission_snapshot()
 }
 
+/// Asking can block for a few hundred milliseconds while an input stream opens,
+/// and a synchronous command runs on the window thread, so this one is async.
+/// What it returns is an outcome, not a state: a system prompt is answered
+/// later, and a probe taken while it is still on screen reports the old answer.
 #[tauri::command]
-fn request_permission(kind: String) -> serde_json::Value {
-    match kind.as_str() {
-        "screen_recording" => {
-            platform_permissions::request_screen_recording();
-        }
-        "accessibility" => open_privacy_pane("Privacy_Accessibility"),
-        // A refusal cannot be undone by asking again; only the settings row
-        // can. A first run has never been asked, so the stream is what raises
-        // the system prompt.
-        "microphone" => match platform_permissions::probe().microphone {
-            openclicky_core::ports::MicrophoneAccess::Denied => {
-                open_privacy_pane("Privacy_Microphone")
-            }
-            openclicky_core::ports::MicrophoneAccess::NotDetermined => {
-                platform_permissions::request_microphone(&CpalAudio::new());
-            }
-            openclicky_core::ports::MicrophoneAccess::Granted => {}
-        },
-        _ => {}
-    }
-    permission_snapshot()
+async fn request_permission(kind: String) -> Result<serde_json::Value, String> {
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
+        platform_permissions::request(&kind, &CpalAudio::new())
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "outcome": outcome.as_str(),
+        "permissions": permission_snapshot(),
+    }))
 }
 
 #[tauri::command]
@@ -475,18 +468,6 @@ fn selftest(_state: TauriState<'_, AppState>) -> Result<serde_json::Value, Strin
         }))
         .collect::<Vec<_>>()))
 }
-
-#[cfg(target_os = "macos")]
-fn open_privacy_pane(anchor: &str) {
-    let _ = std::process::Command::new("open")
-        .arg(format!(
-            "x-apple.systempreferences:com.apple.preference.security?{anchor}"
-        ))
-        .spawn();
-}
-
-#[cfg(not(target_os = "macos"))]
-fn open_privacy_pane(_anchor: &str) {}
 
 fn reveal_main(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
