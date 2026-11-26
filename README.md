@@ -114,6 +114,10 @@ out of scope: 系统级备份（Time Machine / Windows 备份）
 out of scope: 磁盘上已释放区块的残留
 ```
 
+**能不能用别家端点**
+
+`provider.base_url` 可以指向任何 OpenAI 兼容端点，LiteLLM、OpenRouter、vLLM、LM Studio 都行。代价（截图会经过第三方、听写要另配地址、本机没声音时指针改跟字幕）写在 [`docs/07-compatible-endpoints.md`](docs/07-compatible-endpoints.md)。那是一个选项，不是推荐路径。
+
 **现在不支持什么**
 
 - 没有签名安装包，只能源码运行；macOS 上会带未签名警告。
