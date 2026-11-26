@@ -164,6 +164,87 @@ fn openai_request_carries_images_and_tools() {
 }
 
 #[test]
+fn a_reasoning_model_gets_max_completion_tokens_and_no_temperature() {
+    for model in [
+        "o1",
+        "o1-preview",
+        "o3-mini",
+        "gpt-5",
+        "gpt-5.1",
+        "openrouter/o4-mini",
+    ] {
+        let http = FakeHttp::json(200, r#"{"choices":[{"message":{"content":"ok"}}]}"#);
+        let p = openai::OpenAi::new(http.clone(), cfg(ProviderKind::Openai), key());
+        p.complete(&ChatRequest::simple(model, "s", "u")).unwrap();
+        let sent = http.body().unwrap();
+        assert!(
+            sent.get("temperature").is_none(),
+            "{model} refuses temperature, so it must not be sent"
+        );
+        assert!(
+            sent.get("max_tokens").is_none(),
+            "{model} takes max_completion_tokens, not max_tokens"
+        );
+        assert_eq!(
+            sent["max_completion_tokens"].as_u64(),
+            Some(1024),
+            "{model} carries the requested budget"
+        );
+        assert_eq!(
+            sent["model"].as_str(),
+            Some(model),
+            "{model} is sent under the id the user picked"
+        );
+    }
+}
+
+#[test]
+fn a_reasoning_model_is_streamed_with_the_same_fields() {
+    let http = FakeHttp::sse(vec!["data: [DONE]"]);
+    let p = openai::OpenAi::new(http.clone(), cfg(ProviderKind::Openai), key());
+    p.complete_stream(&ChatRequest::simple("o3-mini", "s", "u"), &mut |_| {})
+        .unwrap();
+    let sent = http.body().unwrap();
+    assert!(
+        sent.get("temperature").is_none(),
+        "a streamed o3-mini refuses temperature too"
+    );
+    assert!(
+        sent.get("max_tokens").is_none(),
+        "a streamed o3-mini takes max_completion_tokens"
+    );
+    assert_eq!(
+        sent["max_completion_tokens"].as_u64(),
+        Some(1024),
+        "a streamed o3-mini carries the requested budget"
+    );
+}
+
+#[test]
+fn an_ordinary_model_keeps_temperature_and_max_tokens() {
+    for model in ["gpt-4o", "gpt-4.1-mini", "gpt-50", "mock-chat"] {
+        let http = FakeHttp::json(200, r#"{"choices":[{"message":{"content":"ok"}}]}"#);
+        let p = openai::OpenAi::new(http.clone(), cfg(ProviderKind::Openai), key());
+        p.complete(&ChatRequest::simple(model, "s", "u")).unwrap();
+        let sent = http.body().unwrap();
+        assert_eq!(
+            sent["temperature"].as_f64(),
+            Some(f64::from(0.3f32)),
+            "{model} still takes a temperature"
+        );
+        assert_eq!(
+            sent["max_tokens"].as_u64(),
+            Some(1024),
+            "{model} still takes max_tokens"
+        );
+        assert!(
+            sent.get("max_completion_tokens").is_none(),
+            "{model} must not be sent a field it may reject"
+        );
+    }
+}
+
+#[test]
 fn anthropic_parses_tool_use() {
     let body = r#"{"content":[{"type":"text","text":"ok"},{"type":"tool_use","id":"t1","name":"fs_write","input":{"path":"x"}}],"usage":{"input_tokens":5,"output_tokens":2}}"#;
     let p = anthropic::Anthropic::new(

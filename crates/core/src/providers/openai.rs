@@ -11,6 +11,28 @@ use crate::ports::*;
 
 use super::{classify_status, retry_after, truncate, KEY_NAME};
 
+// The table is the rule, so a later gpt-5.1 or o3-pro needs no edit here. The
+// boundary after the prefix keeps gpt-50 and gpt-4o on the older dialect, and the
+// last path segment covers an aggregator id such as openrouter/o3-mini.
+const REASONING_FAMILIES: [&str; 4] = ["o1", "o3", "o4", "gpt-5"];
+
+fn is_reasoning_model(model: &str) -> bool {
+    let name = model
+        .rsplit('/')
+        .next()
+        .unwrap_or(model)
+        .trim()
+        .to_ascii_lowercase();
+    REASONING_FAMILIES.iter().any(|family| {
+        name.strip_prefix(family).is_some_and(|rest| {
+            rest.is_empty()
+                || rest.starts_with('-')
+                || rest.starts_with('.')
+                || rest.starts_with(':')
+        })
+    })
+}
+
 pub struct OpenAi {
     http: Arc<dyn HttpTransport>,
     config: Config,
@@ -61,9 +83,13 @@ impl OpenAi {
         let mut body = json!({
             "model": req.model,
             "messages": messages,
-            "max_tokens": req.max_tokens,
-            "temperature": req.temperature,
         });
+        if is_reasoning_model(&req.model) {
+            body["max_completion_tokens"] = json!(req.max_tokens);
+        } else {
+            body["max_tokens"] = json!(req.max_tokens);
+            body["temperature"] = json!(req.temperature);
+        }
         if stream {
             body["stream"] = json!(true);
         }
