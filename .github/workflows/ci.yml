@@ -17,6 +17,12 @@ jobs:
   docs:
     name: docs-and-invariants
     runs-on: ubuntu-latest
+    # `issues` and `pull-requests` are here for the close guard only: it reads
+    # one body and the comment count of the issues that body would close.
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,6 +30,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      # This rides the required check on purpose. A separate job could be green
+      # or missing while the merge gate stayed satisfied, which is the failure
+      # mode this rule exists to stop. Only a pull request has a body to read.
+      - name: Closing an issue needs evidence in the issue
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/check-close-evidence.sh "${{ github.event.pull_request.number }}"
       - name: Structural invariants
         run: bash scripts/check-invariants.sh
       - name: Numbered-item coverage (88/88)
