@@ -24,6 +24,7 @@ pub mod routines;
 pub mod security;
 pub mod store;
 pub mod suggest;
+pub mod text;
 pub mod tools;
 pub mod usage;
 pub mod voice;

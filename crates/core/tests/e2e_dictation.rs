@@ -3,7 +3,8 @@
 
 mod support;
 
-use openclicky_core::dictation::{terminal_safe, DictationEngine};
+use openclicky_core::dictation::DictationEngine;
+use openclicky_core::text::terminal_safe;
 use openclicky_core::ports::{TargetInfo, TargetKind, TextInjector};
 use support::*;
 

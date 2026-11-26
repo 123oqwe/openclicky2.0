@@ -134,16 +134,41 @@ impl TextInjector for PlatformInjector {
         Some(TargetInfo { app, kind })
     }
 
-    fn inject(&self, text: &str, _target: &TargetInfo) -> Result<InjectOutcome> {
+    fn inject(&self, text: &str, target: &TargetInfo) -> Result<InjectOutcome> {
         if text.is_empty() {
             return Ok(InjectOutcome::Typed);
         }
-        if let Ok(mut enigo) = Enigo::new(&Settings::default()) {
-            if enigo.text(text).is_ok() {
-                return Ok(InjectOutcome::Typed);
+        match openclicky_core::text::plan_injection(text, target.kind.clone(), true) {
+            openclicky_core::text::Injection::Type(payload) => {
+                if let Ok(mut enigo) = Enigo::new(&Settings::default()) {
+                    if enigo.text(&payload).is_ok() {
+                        return Ok(InjectOutcome::Typed);
+                    }
+                }
+                self.paste_text(&payload)
             }
+            // A terminal never gets keystrokes, even as a fallback: the paste
+            // keystroke does not submit a line, a typed newline does.
+            openclicky_core::text::Injection::Paste(payload) => self.paste_text(&payload),
+            openclicky_core::text::Injection::CopyOnly(payload) => self.copy_only(&payload),
         }
+    }
 
+    fn copy(&self, text: &str) -> Result<InjectOutcome> {
+        self.copy_only(&openclicky_core::text::terminal_safe(text))
+    }
+}
+
+impl PlatformInjector {
+    fn copy_only(&self, text: &str) -> Result<InjectOutcome> {
+        let mut clipboard = arboard::Clipboard::new().map_err(|e| Error::Internal(e.to_string()))?;
+        clipboard
+            .set_text(text.to_string())
+            .map_err(|e| Error::Internal(e.to_string()))?;
+        Ok(InjectOutcome::CopiedOnly)
+    }
+
+    fn paste_text(&self, text: &str) -> Result<InjectOutcome> {
         let mut clipboard =
             arboard::Clipboard::new().map_err(|e| Error::Internal(e.to_string()))?;
         let previous = clipboard.get_text().ok();
