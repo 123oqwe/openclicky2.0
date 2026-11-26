@@ -202,6 +202,7 @@ impl App {
             _ => {}
         });
         let deps = Deps::new(
+            Arc::new(openclicky_core::clock::SystemClock),
             Arc::new(XcapScreen::new()),
             Arc::new(CpalAudio::new()),
             stt,
