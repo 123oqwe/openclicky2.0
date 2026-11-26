@@ -283,6 +283,11 @@
 | `looks_secret` | 裸的 6-8 位数字不再被当验证码（订单号可听写） | `crates/core/src/dictation.rs::a_bare_long_number_is_no_longer_a_code` |
 | `looks_secret` | 说了"验证码/code"再加 6-8 位数字仍然拦；卡号仍按 Luhn 拦 | `::a_code_someone_names_is_still_a_code`、`::a_card_number_is_still_refused` |
 | `secret_reason` | 提示能说清是哪条规则命中 | `crates/core/src/dictation.rs::the_notice_can_name_which_rule_fired` |
+| `dictation_shortcut` | `fn+control` 降级到 `ctrl+alt+d` 并标记"不是用户要的" | `apps/desktop/src/main.rs::the_default_dictation_binding_falls_back_because_tauri_has_no_fn` |
+| `dictation_shortcut` | Tauri 能表达的绑定按原样使用 | `apps/desktop/src/main.rs::a_binding_tauri_can_express_is_used_as_written` |
+| `tauri_binding` | 双击手势不是全局快捷键；修饰键名翻译正确 | `::a_double_tap_gesture_is_not_a_global_shortcut`、`::modifiers_are_translated_to_the_names_tauri_parses` |
+| `install_dictation_shortcut` | 按住出字、松手收尾、预算耗尽停 ticker | spec-only（需真人按键与真麦克风） |
+| `reregister_dictation` | 保存后按新配置重注册，旧键解绑 | spec-only（需真人改配置后按键） |
 | `durable` | 文件存储持久；钥匙串拒写后不持久；两者组合的四种取值 | `crates/platform/src/secrets.rs::durability_is_decided_by_the_file_store_and_the_keychain` |
 | `is_durable` | 只剩内存时不得自称已保存 | `::a_store_that_cannot_persist_does_not_call_itself_durable` |
 | `allow_file_store` | 显式落盘后新进程仍读得到（文件即开关） | `::an_opted_in_store_is_still_opted_in_after_a_restart` |
