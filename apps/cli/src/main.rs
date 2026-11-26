@@ -88,6 +88,15 @@ enum Command {
     SetKey {
         #[arg(long, default_value = "provider/default")]
         name: String,
+        /// Store the key in this data directory's encrypted file instead of the
+        /// system keychain. Needed where the keychain refuses the write, which
+        /// otherwise leaves the key alive only until the process exits.
+        #[arg(long)]
+        remember_file: bool,
+        /// Skip the live check. A key that cannot be verified is a key that will
+        /// fail later, so this exists for offline setup and nothing else.
+        #[arg(long)]
+        no_check: bool,
     },
     Usage,
     /// Show what OpenClicky remembers about you.
@@ -289,14 +298,44 @@ fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Command::Selftest { out } => selftest(&app, out),
-        Command::SetKey { name } => {
+        Command::SetKey {
+            name,
+            remember_file,
+            no_check,
+        } => {
             let mut buf = String::new();
             std::io::stdin().read_to_string(&mut buf)?;
             let key = buf.trim();
             if key.is_empty() {
                 return Err(anyhow!("empty key on stdin"));
             }
-            app.secrets.set(&name, &SecretString::new(key))?;
+            if remember_file {
+                app.secrets.allow_file_store()?;
+            }
+            let target = providers::describe_target(&app.config);
+            if !no_check {
+                let wanted = app.config.provider.chat_model.clone();
+                match providers::check_save(
+                    &app.config,
+                    app.http.clone(),
+                    Some(&key.into()),
+                    &wanted,
+                ) {
+                    Ok(_) if wanted.trim().is_empty() => {
+                        println!("key accepted by {target} (还没有配置模型)")
+                    }
+                    Ok(_) => println!("key accepted by {target}"),
+                    Err(e) => {
+                        return Err(anyhow!("{} ({}) — {}", e.user_message(), e.code(), target))
+                    }
+                }
+            }
+            app.secrets.set(&name, &key.into())?;
+            if !app.secrets.is_durable() {
+                return Err(anyhow!(
+                    "the key was not stored: this system refused it, and it would vanish when this process exits. Re-run with --remember-file to keep it in an encrypted file in the data directory."
+                ));
+            }
             println!("saved {name}");
             Ok(())
         }

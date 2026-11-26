@@ -14,6 +14,10 @@ coverage/
 .vscode/
 .idea/
 
+# Agent session state. Local to one machine and one run; it has no place in a
+# commit, and `git add -A` picks it up unless it is ignored.
+.pi/
+
 # Python bytecode from running the doc scripts
 __pycache__/
 *.pyc
