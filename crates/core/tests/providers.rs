@@ -402,3 +402,114 @@ fn an_accepted_save_writes_the_model_and_stores_the_key() {
     assert_eq!(written.provider.chat_model, "gpt-real");
     assert_eq!(secrets.stored.lock().unwrap().len(), 1);
 }
+
+/// A transport that replays a script: each call takes the next entry, and the
+/// last one repeats. Counts calls so a test can tell a retry from a single try.
+struct ScriptedHttp {
+    script: Mutex<Vec<openclicky_core::Result<HttpResponse>>>,
+    calls: std::sync::atomic::AtomicUsize,
+}
+
+impl ScriptedHttp {
+    fn new(script: Vec<openclicky_core::Result<HttpResponse>>) -> std::sync::Arc<Self> {
+        std::sync::Arc::new(Self {
+            script: Mutex::new(script),
+            calls: std::sync::atomic::AtomicUsize::new(0),
+        })
+    }
+    fn calls(&self) -> usize {
+        self.calls.load(std::sync::atomic::Ordering::SeqCst)
+    }
+    fn next(&self) -> openclicky_core::Result<HttpResponse> {
+        let index = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let mut script = self.script.lock().unwrap();
+        if index + 1 < script.len() {
+            script.remove(0)
+        } else {
+            script[0].clone()
+        }
+    }
+}
+
+impl HttpTransport for ScriptedHttp {
+    fn get(
+        &self,
+        _u: &str,
+        _h: &[(String, String)],
+        _t: Duration,
+    ) -> openclicky_core::Result<HttpResponse> {
+        self.next()
+    }
+    fn post_json(
+        &self,
+        _u: &str,
+        _h: &[(String, String)],
+        _b: &serde_json::Value,
+        _t: Duration,
+    ) -> openclicky_core::Result<HttpResponse> {
+        self.next()
+    }
+    fn post_multipart(
+        &self,
+        _u: &str,
+        _h: &[(String, String)],
+        _f: &MultipartForm,
+        _t: Duration,
+    ) -> openclicky_core::Result<HttpResponse> {
+        self.next()
+    }
+    fn post_json_stream(
+        &self,
+        _u: &str,
+        _h: &[(String, String)],
+        _b: &serde_json::Value,
+        _t: Duration,
+    ) -> openclicky_core::Result<Box<dyn LineStream>> {
+        Ok(Box::new(Lines(Vec::new(), 0)))
+    }
+}
+
+fn chat_ok() -> HttpResponse {
+    HttpResponse {
+        status: 200,
+        headers: vec![],
+        body: br#"{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}"#.to_vec(),
+    }
+}
+
+#[test]
+fn a_transient_timeout_is_retried_and_then_succeeds() {
+    let http = ScriptedHttp::new(vec![Err(openclicky_core::Error::Timeout), Ok(chat_ok())]);
+    let provider = openai::OpenAi::new(http.clone(), cfg(ProviderKind::Openai), key());
+    let reply = provider
+        .complete(&ChatRequest::simple("m", "s", "u"))
+        .unwrap();
+    assert_eq!(reply.text, "ok");
+    assert_eq!(http.calls(), 2, "one timeout, one retry");
+}
+
+#[test]
+fn a_bad_key_is_not_retried() {
+    let http = ScriptedHttp::new(vec![Ok(HttpResponse {
+        status: 401,
+        headers: vec![],
+        body: br#"{"error":{"message":"invalid api key"}}"#.to_vec(),
+    })]);
+    let provider = openai::OpenAi::new(http.clone(), cfg(ProviderKind::Openai), key());
+    let error = provider
+        .complete(&ChatRequest::simple("m", "s", "u"))
+        .unwrap_err();
+    assert_eq!(error.code(), "E_AUTH");
+    assert_eq!(http.calls(), 1, "a rejected key stays rejected");
+}
+
+#[test]
+fn retries_stop_after_two_so_a_dead_provider_fails_in_seconds() {
+    let http = ScriptedHttp::new(vec![Err(openclicky_core::Error::Outage)]);
+    let provider = openai::OpenAi::new(http.clone(), cfg(ProviderKind::Openai), key());
+    let error = provider
+        .complete(&ChatRequest::simple("m", "s", "u"))
+        .unwrap_err();
+    assert_eq!(error.code(), "E_OUTAGE");
+    assert_eq!(http.calls(), 3, "the first attempt plus two retries");
+}

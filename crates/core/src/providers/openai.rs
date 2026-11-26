@@ -84,20 +84,22 @@ impl OpenAi {
 
 impl ChatProvider for OpenAi {
     fn complete(&self, req: &ChatRequest) -> Result<ChatResponse> {
-        let resp = self.http.post_json(
-            &format!("{}/chat/completions", self.base()),
-            &self.headers(),
-            &self.body(req, false),
-            Duration::from_secs(180),
-        )?;
-        if resp.status >= 400 {
-            return Err(classify_status(
-                resp.status,
-                &resp.text(),
-                retry_after(&resp.headers),
-            ));
-        }
-        parse_chat(&resp.text())
+        super::with_retries(|| {
+            let resp = self.http.post_json(
+                &format!("{}/chat/completions", self.base()),
+                &self.headers(),
+                &self.body(req, false),
+                Duration::from_secs(180),
+            )?;
+            if resp.status >= 400 {
+                return Err(classify_status(
+                    resp.status,
+                    &resp.text(),
+                    retry_after(&resp.headers),
+                ));
+            }
+            parse_chat(&resp.text())
+        })
     }
 
     fn complete_stream(

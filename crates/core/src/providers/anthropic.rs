@@ -86,16 +86,18 @@ impl Anthropic {
 
 impl ChatProvider for Anthropic {
     fn complete(&self, req: &ChatRequest) -> Result<ChatResponse> {
-        let resp = self.http.post_json(
-            &format!("{}/messages", self.base()),
-            &self.headers(),
-            &self.body(req, false),
-            Duration::from_secs(180),
-        )?;
-        if resp.status >= 400 {
-            return Err(classify_status(resp.status, &resp.text(), None));
-        }
-        parse_messages(&resp.text())
+        super::with_retries(|| {
+            let resp = self.http.post_json(
+                &format!("{}/messages", self.base()),
+                &self.headers(),
+                &self.body(req, false),
+                Duration::from_secs(180),
+            )?;
+            if resp.status >= 400 {
+                return Err(classify_status(resp.status, &resp.text(), None));
+            }
+            parse_messages(&resp.text())
+        })
     }
 
     fn complete_stream(
