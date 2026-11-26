@@ -279,6 +279,10 @@
 | `save_provider` | 通过的保存写模型并存入 key | `::an_accepted_save_writes_the_model_and_stores_the_key` |
 | `conversation_session` | 30 分钟内两次提问共用一个 session，第二次请求带上一轮 | `crates/core/tests/e2e_ask.rs::a_follow_up_shares_the_session_and_sees_the_earlier_turn` |
 | `conversation_session` | 间隔超过窗口就换新 session | `crates/core/tests/e2e_ask.rs::a_long_gap_starts_a_new_conversation` |
+| `apply_dictionary` | 不在长词内部替换，且一次扫描不级联 | `crates/core/src/dictation.rs::a_dictionary_key_does_not_reach_inside_a_longer_word`、`::a_dictionary_rewrite_does_not_feed_the_next_entry` |
+| `looks_secret` | 裸的 6-8 位数字不再被当验证码（订单号可听写） | `crates/core/src/dictation.rs::a_bare_long_number_is_no_longer_a_code` |
+| `looks_secret` | 说了"验证码/code"再加 6-8 位数字仍然拦；卡号仍按 Luhn 拦 | `::a_code_someone_names_is_still_a_code`、`::a_card_number_is_still_refused` |
+| `secret_reason` | 提示能说清是哪条规则命中 | `crates/core/src/dictation.rs::the_notice_can_name_which_rule_fired` |
 | `durable` | 文件存储持久；钥匙串拒写后不持久；两者组合的四种取值 | `crates/platform/src/secrets.rs::durability_is_decided_by_the_file_store_and_the_keychain` |
 | `is_durable` | 只剩内存时不得自称已保存 | `::a_store_that_cannot_persist_does_not_call_itself_durable` |
 | `allow_file_store` | 显式落盘后新进程仍读得到（文件即开关） | `::an_opted_in_store_is_still_opted_in_after_a_restart` |
