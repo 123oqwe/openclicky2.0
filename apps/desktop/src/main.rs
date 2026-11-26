@@ -318,16 +318,22 @@ fn save_provider(
     key: Option<String>,
     model: String,
 ) -> Result<(), String> {
-    if let Some(k) = key.filter(|k| !k.trim().is_empty()) {
-        state
-            .secrets
-            .set(providers::KEY_NAME, &k.as_str().into())
-            .map_err(|e| e.user_message())?;
-    }
-    let mut cfg = state.config.write().unwrap();
-    cfg.provider.chat_model = model.trim().to_string();
-    cfg.save(&state.paths.config_file())
-        .map_err(|e| e.user_message())
+    let candidate = key
+        .filter(|k| !k.trim().is_empty())
+        .map(|k| k.as_str().into());
+    let mut cfg = state.config.read().unwrap().clone();
+    let target = providers::describe_target(&cfg);
+    providers::save_provider(
+        &mut cfg,
+        &state.paths.config_file(),
+        state.http.clone(),
+        state.secrets.as_ref(),
+        candidate.as_ref(),
+        &model,
+    )
+    .map_err(|e| format!("{} ({}) — {}", e.user_message(), e.code(), target))?;
+    *state.config.write().unwrap() = cfg;
+    Ok(())
 }
 
 #[tauri::command]
@@ -469,6 +475,16 @@ fn selftest(_state: TauriState<'_, AppState>) -> Result<serde_json::Value, Strin
         .collect::<Vec<_>>()))
 }
 
+/// The recovery path when the system keychain refuses the write. Explicit,
+/// because it puts the key on disk.
+#[tauri::command]
+fn allow_file_store(state: TauriState<'_, AppState>) -> Result<(), String> {
+    state
+        .secrets
+        .allow_file_store()
+        .map_err(|e| e.user_message())
+}
+
 fn reveal_main(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -526,6 +542,7 @@ fn main() {
             answer_question,
             permissions,
             request_permission,
+            allow_file_store,
             create_task,
             approve_task,
             deny_task,

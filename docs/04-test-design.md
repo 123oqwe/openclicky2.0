@@ -264,6 +264,25 @@
 
 `microphone_access()` 读 `+[AVCaptureDevice authorizationStatusForMediaType:` 的三个返回值，无法离线断言；它的手工验证方式是真机首次运行看到系统弹框，证据记在 #63。
 
+### 12.3 key 与模型在保存前就被证明（#64）
+
+一条规则。任何写进钥匙串或配置文件的东西，必须先在一个不落盘的路径上通过验证。坏 key 与不存在的模型名都在这里被拦住；拦住时旧配置保持不变。
+
+| 接口 | 断言 | 证据 |
+|---|---|---|
+| `check_save` | 401 的 key 在保存前就失败 | `crates/core/tests/providers.rs::a_refused_key_fails_the_save_check` |
+| `check_save` | 模型名不在列表里就拒绝，且提示里带那个名字 | `::a_model_outside_the_list_is_refused_before_it_is_saved` |
+| `check_save` | 还没选模型也要验 key（列表能取到才算过） | `::an_unchosen_model_still_checks_the_key` |
+| `build_with_key` | 用候选 key 构建 provider 不写钥匙串（写入即 panic） | `::a_candidate_key_is_used_without_being_stored` |
+| `describe_target` | 提示里有 provider 名与 base_url | `::the_target_is_named_so_a_refusal_points_at_one_endpoint` |
+| `save_provider` | 被拒的保存不改写还能用的配置文件，也不写钥匙串 | `::a_refused_save_leaves_the_working_config_file_alone` |
+| `save_provider` | 通过的保存写模型并存入 key | `::an_accepted_save_writes_the_model_and_stores_the_key` |
+| `durable` | 文件存储持久；钥匙串拒写后不持久；两者组合的四种取值 | `crates/platform/src/secrets.rs::durability_is_decided_by_the_file_store_and_the_keychain` |
+| `is_durable` | 只剩内存时不得自称已保存 | `::a_store_that_cannot_persist_does_not_call_itself_durable` |
+| `allow_file_store` | 显式落盘后新进程仍读得到（文件即开关） | `::an_opted_in_store_is_still_opted_in_after_a_restart` |
+| `set-key` | 钥匙串拒写时报错退出，不打印 saved | 手工：`printf '"'"'k'"'"' \| openclicky --data-dir /tmp/x set-key` → exit 1 |
+| `set-key` | 错 key 报 `E_AUTH` 并带上 `provider @ base_url` | 手工：同上，`--remember-file` 指向真实端点 |
+
 ### 13 性能、容量、稳定性与成本
 
 **负载模型**（写清才能比较）：单用户、串行会话、4K×2 显示器、12s 语音、假 provider 固定延迟 300ms。
