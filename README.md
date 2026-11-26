@@ -24,9 +24,9 @@ irm https://raw.githubusercontent.com/123oqwe/openclicky2.0/main/scripts/install
 
 That puts an `openclicky` command on your PATH. Where the release carries a desktop shell
 for your machine, the script installs it too: `OpenClicky.app` on macOS, the AppImage plus a
-menu entry on Linux. On Windows it installs the CLI only, so take
-[`OpenClicky_2.0.3_x64-setup.exe`](https://github.com/123oqwe/openclicky2.0/releases/latest)
-from the release page for the window.
+menu entry on Linux. On Windows it installs the CLI only, so take the
+`OpenClicky_*_x64-setup.exe` asset from the
+[releases page](https://github.com/123oqwe/openclicky2.0/releases/latest) for the window.
 
 The artifacts are ad-hoc signed, not notarized. macOS blocks the first launch and you have to
 allow it under System Settings → Privacy & Security. That is a known gap, not something you
