@@ -10,3 +10,5 @@ scripts
 CHANGELOG.md
 scripts/install.sh
 scripts/install.ps1
+# 仓库根部的用户可见文档
+PRIVACY.md
