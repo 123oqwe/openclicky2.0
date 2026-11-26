@@ -3,7 +3,6 @@
 
 use std::sync::{Arc, RwLock};
 
-use crate::clock::SystemClock;
 use crate::config::Config;
 use crate::memory::Memory;
 use crate::ports::*;
@@ -33,8 +32,11 @@ pub struct Deps {
 }
 
 impl Deps {
+    /// The clock is a parameter rather than a `SystemClock` built here so a test
+    /// can move time instead of sleeping through it.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        clock: Arc<dyn Clock>,
         screen: Arc<dyn ScreenSource>,
         audio: Arc<dyn AudioSource>,
         stt: Arc<dyn Transcriber>,
@@ -48,7 +50,6 @@ impl Deps {
         config: Config,
         events: EventSink,
     ) -> Arc<Self> {
-        let clock: Arc<dyn Clock> = Arc::new(SystemClock);
         let usage = Arc::new(UsageMeter::new(
             store.clone(),
             clock.clone(),

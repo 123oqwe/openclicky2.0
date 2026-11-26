@@ -206,6 +206,7 @@ fn build_state(
     });
 
     let deps = Deps::new(
+        Arc::new(openclicky_core::clock::SystemClock),
         Arc::from(XcapScreen),
         Arc::from(CpalAudio::default()),
         Arc::from(ReloadableStt {
