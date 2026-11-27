@@ -518,19 +518,6 @@ fn save_provider(
     )
     .map_err(|e| format!("{} ({}) — {}", e.user_message(), e.code(), target))?;
     *state.config.write().unwrap() = cfg;
-    // A save that leaves the key in memory looks identical to a good save until
-    // the next restart, and then the key is gone with nothing said. Say it here,
-    // on the banner the user already reads, with the backend's own words.
-    if candidate.is_some() && !state.secrets.is_durable() {
-        let why = state.secrets.degraded_reason().unwrap_or_else(|| {
-            concat!("the system ", "keychain", " refused the write").to_string()
-        });
-        let line = format!("key 只在这个进程里有效，重启就要重新粘：{why}");
-        let mut issues = state.issues.write().unwrap();
-        if !issues.contains(&line) {
-            issues.push(line);
-        }
-    }
     reregister_dictation(&state, &model);
     Ok(())
 }

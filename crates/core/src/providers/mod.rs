@@ -103,10 +103,17 @@ pub fn save_provider(
     if candidate.is_some() {
         secrets.set(KEY_NAME, &key)?;
         if !secrets.is_durable() {
-            return Err(Error::BadRequest(
-                "这个系统没有接受写入钥匙串,key 会在这个进程结束时消失。改为存到本目录的加密文件。(E_KEY_NOT_STORED)"
-                    .into(),
-            ));
+            // Roll it back before refusing. A store that accepted the write and
+            // lost it still answers a read from memory, so leaving the key there
+            // makes `has_key` true, `ready` true, and the settings card hide, for
+            // a key that dies with the process.
+            let why = secrets
+                .degraded_reason()
+                .unwrap_or_else(|| "钥匙串拒绝了写入".to_string());
+            secrets.delete(KEY_NAME)?;
+            return Err(Error::BadRequest(format!(
+                "这个系统没有接受写入钥匙串,key 会在这个进程结束时消失。改为存到本目录的加密文件。原因:{why} (E_KEY_NOT_STORED)"
+            )));
         }
     }
     config.save(path)
