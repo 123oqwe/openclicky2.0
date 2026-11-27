@@ -137,7 +137,7 @@ impl ChatProvider for Anthropic {
         Ok(ChatResponse {
             text,
             tool_calls: Vec::new(),
-            usage: TokenUsage::default(),
+            usage: Spend::default(),
             finish: FinishReason::Stop,
         })
     }
@@ -191,7 +191,7 @@ pub fn parse_messages(body: &str) -> Result<ChatResponse> {
     Ok(ChatResponse {
         text,
         tool_calls,
-        usage: TokenUsage {
+        usage: Spend {
             input_tokens: v["usage"]["input_tokens"].as_u64().unwrap_or(0) as u32,
             output_tokens: v["usage"]["output_tokens"].as_u64().unwrap_or(0) as u32,
         },

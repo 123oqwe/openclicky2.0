@@ -140,7 +140,7 @@ impl ChatProvider for OpenAi {
             Duration::from_secs(180),
         )?;
         let mut text = String::new();
-        let mut usage = TokenUsage::default();
+        let mut usage = Spend::default();
         while let Some(line) = stream.next_line()? {
             let line = line.trim();
             if line.is_empty() || line.starts_with(':') {
@@ -233,7 +233,7 @@ pub fn parse_chat(body: &str) -> Result<ChatResponse> {
     Ok(ChatResponse {
         text,
         tool_calls,
-        usage: TokenUsage {
+        usage: Spend {
             input_tokens: v["usage"]["prompt_tokens"].as_u64().unwrap_or(0) as u32,
             output_tokens: v["usage"]["completion_tokens"].as_u64().unwrap_or(0) as u32,
         },

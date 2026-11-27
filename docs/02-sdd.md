@@ -157,11 +157,11 @@ pub struct ChatRequest {
 pub struct ChatResponse {
     pub text: String,
     pub tool_calls: Vec<ToolCall>,
-    pub usage: TokenUsage,
+    pub usage: Spend,
     pub finish: FinishReason, // Stop | Length | ToolCalls | Error
 }
 
-pub struct TokenUsage { pub input_tokens: u32, pub output_tokens: u32 }
+pub struct Spend { pub input_tokens: u32, pub output_tokens: u32 }
 
 pub trait ChatProvider: Send + Sync {
     /// 非流式，支持工具调用（agent 用）

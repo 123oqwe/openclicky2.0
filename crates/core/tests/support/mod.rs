@@ -254,7 +254,7 @@ impl ScriptedChat {
         ChatResponse {
             text: text.into(),
             tool_calls: Vec::new(),
-            usage: TokenUsage::default(),
+            usage: Spend::default(),
             finish: FinishReason::Stop,
         }
     }
@@ -262,7 +262,7 @@ impl ScriptedChat {
         ChatResponse {
             text: String::new(),
             tool_calls: calls,
-            usage: TokenUsage::default(),
+            usage: Spend::default(),
             finish: FinishReason::ToolCalls,
         }
     }

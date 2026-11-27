@@ -359,7 +359,7 @@ pub struct ToolCall {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct TokenUsage {
+pub struct Spend {
     pub input_tokens: u32,
     pub output_tokens: u32,
 }
@@ -377,7 +377,7 @@ pub enum FinishReason {
 pub struct ChatResponse {
     pub text: String,
     pub tool_calls: Vec<ToolCall>,
-    pub usage: TokenUsage,
+    pub usage: Spend,
     pub finish: FinishReason,
 }
 
