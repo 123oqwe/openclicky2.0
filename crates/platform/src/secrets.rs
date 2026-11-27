@@ -38,6 +38,10 @@ fn durable(file_store: bool, degraded: bool) -> bool {
 }
 
 pub struct PlatformSecrets {
+    /// The backend's own words for why the system keychain stopped being used.
+    /// Recorded so a refusal can be told apart from a locked keychain or a
+    /// missing backend instead of collapsing into "will not persist".
+    degraded_reason: Mutex<Option<String>>,
     fallback_path: PathBuf,
     /// Set when the OS keychain is unavailable or failed a read-back.
     degraded: AtomicBool,
@@ -62,9 +66,25 @@ impl PlatformSecrets {
             // Off the keychain the file is only a fallback; degraded means there
             // is no keychain at all, so nothing touches disk until opt-in.
             degraded: AtomicBool::new(degraded),
+            degraded_reason: Mutex::new(None),
             file_store,
             memory: Mutex::new(HashMap::new()),
         }
+    }
+
+    // Only the system-key-store branches above call this. Linux has no such
+    // branch, and a `#[cfg]` here is honest where an `#[allow(dead_code)]` would
+    // hide the next function that really is unused.
+    #[cfg(not(target_os = "linux"))]
+    fn give_up(&self, why: String) {
+        self.degraded.store(true, Ordering::Relaxed);
+        if let Ok(mut slot) = self.degraded_reason.lock() {
+            slot.get_or_insert(why);
+        }
+    }
+
+    pub fn degraded_reason(&self) -> Option<String> {
+        self.degraded_reason.lock().ok().and_then(|r| r.clone())
     }
 
     pub fn is_degraded(&self) -> bool {
@@ -241,7 +261,7 @@ impl Secrets for PlatformSecrets {
                 // A store that cannot be read is not a store that answered
                 // "no key". Claiming durability after a failed read would
                 // report a key as saved that the next process cannot find.
-                Err(_) => self.degraded.store(true, Ordering::Relaxed),
+                Err(e) => self.give_up(e.to_string()),
             }
         }
         if let Some(bytes) = self.memory().get(key) {
@@ -259,14 +279,23 @@ impl Secrets for PlatformSecrets {
         #[cfg(not(target_os = "linux"))]
         if !self.is_degraded() {
             // A successful write that cannot be read back is not a success.
-            let wrote = keychain::set(key, value.expose()).is_ok();
-            let read_back = matches!(keychain::get(key), Ok(Some(v)) if v == value.expose());
-            if wrote && read_back {
+            let wrote = keychain::set(key, value.expose());
+            let read_back = keychain::get(key);
+            if wrote.is_ok() && matches!(&read_back, Ok(Some(v)) if v == value.expose()) {
                 return Ok(());
             }
-            // The keychain did not take it: remember that this install has no
-            // usable keychain and keep the secret in memory.
-            self.degraded.store(true, Ordering::Relaxed);
+            // The keychain did not take it: remember why, then keep the secret in
+            // memory. Which of the two halves failed matters, because a refused
+            // write is a permission problem and a failed read-back is an ACL one.
+            let why = match (&wrote, &read_back) {
+                (Err(e), _) => format!("write refused: {e}"),
+                (Ok(()), Err(e)) => format!("written but unreadable: {e}"),
+                (Ok(()), Ok(None)) =>
+                    "written, then not found when read back: the keychain accepted it and did not keep it"
+                        .to_string(),
+                _ => "written, then read back a different value".to_string(),
+            };
+            self.give_up(why);
         }
         if self.file_store.load(Ordering::Relaxed) {
             return self.file_set(key, value.expose());
@@ -278,6 +307,10 @@ impl Secrets for PlatformSecrets {
 
     fn is_durable(&self) -> bool {
         durable(self.file_store.load(Ordering::Relaxed), self.is_degraded())
+    }
+
+    fn degraded_reason(&self) -> Option<String> {
+        PlatformSecrets::degraded_reason(self)
     }
 
     fn allow_file_store(&self) -> Result<()> {
@@ -383,6 +416,28 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = PlatformSecrets::open(dir.path(), true);
         (dir, store)
+    }
+
+    // Same reason as `give_up` itself: the refusal it describes only exists where
+    // there is a system key store to refuse.
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn a_refusal_keeps_the_backends_own_words() {
+        let (_dir, store) = memory_only();
+        assert_eq!(store.degraded_reason(), None, "nothing has failed yet");
+        store.give_up("write refused: errSecMissingEntitlement".to_string());
+        assert!(!store.is_durable());
+        assert_eq!(
+            store.degraded_reason().as_deref(),
+            Some("write refused: errSecMissingEntitlement"),
+            "the user has to be able to tell a refused ACL from a locked keychain"
+        );
+        // The first reason wins: a later failure must not overwrite the useful one.
+        store.give_up("written but unreadable: something else".to_string());
+        assert!(store
+            .degraded_reason()
+            .unwrap()
+            .contains("errSecMissingEntitlement"));
     }
 
     fn disk_store() -> (tempfile::TempDir, PlatformSecrets) {

@@ -102,6 +102,20 @@ if [ "$has_code" -eq 1 ]; then
     bad "capture_all called without a &guard argument"
   fi
 
+  note "== overlay: a pointer is drawn where the plan says it is =="
+  # The overlay window is not at the screen's origin: macOS clamps it below the
+  # menu bar, and a second display puts it somewhere else again. A canvas that
+  # assumes its own top-left is (0,0) draws every stroke that far off, which is
+  # #140. The transform that carries the origin has a case in a node test.
+  if command -v node >/dev/null 2>&1; then
+    if ! overlay_out=$(node --test apps/desktop/ui/overlay-coords.test.js 2>&1); then
+      echo "$overlay_out" | tail -20
+      bad "the overlay transform does not put a plan point back on its screen point"
+    fi
+  else
+    note "   skipped: no node on this machine"
+  fi
+
   note "== linux deps come from one script =="
   # Installing the built artifact itself is fine; declaring a second package
   # list is what drifted. A path argument marks the former.
