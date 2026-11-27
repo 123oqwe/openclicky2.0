@@ -292,6 +292,20 @@ jobs:
             echo "::error::$tag is already public. Refusing to overwrite. Cut a new version."
             exit 1
           fi
-          gh release create "$tag" --draft --title "$tag" --notes-file CHANGELOG.md artifacts/*
-          gh release edit "$tag" --notes-file CHANGELOG.md --draft=false
+          # Only this version's section. The file carries every release back to
+          # 2.0.0, so pointing at it wholesale made the page for one tag the whole
+          # project history, and cutting it out by hand after each release was the
+          # kind of step that gets forgotten.
+          # The tag drives both routes: a pushed tag and a dispatch with
+          # publish_tag. Read the same thing the publish condition reads, not a
+          # third spelling of the version.
+          version="${{ inputs.publish_tag || github.ref_name }}"
+          version="${version#v}"
+          awk -v want="## ${version}" 'index($0, want) == 1 { found = 1; print; next } found && /^## / { exit } found' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "::error::CHANGELOG.md has no section for ${version}. Nothing was published."
+            exit 1
+          fi
+          gh release create "$tag" --draft --title "$tag" --notes-file notes.md artifacts/*
+          gh release edit "$tag" --notes-file notes.md --draft=false
           gh release view "$tag" --json assets -q '"assets: \(.assets | length)"'
