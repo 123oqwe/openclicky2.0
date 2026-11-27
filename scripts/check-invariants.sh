@@ -152,6 +152,21 @@ if [ "$has_code" -eq 1 ]; then
       bad "$entitlements_path does not grant com.apple.security.device.audio-input"
     fi
   fi
+
+  note "== overlay: no native fullscreen transition on a transparent window =="
+  # `fullscreen: true` maps to Fullscreen::Borderless(None). tao runs
+  # set_fullscreen before orderFront (window_delegate.rs:548-561): the transition
+  # opens a new Space and takes the window with it. bounds and alpha stay correct,
+  # onscreen goes false, and the canvas is never composited, so the symptom is
+  # "the pointer does not draw" five layers away from the cause. #124.
+  overlay_fs=$(python3 -c '
+import json
+w = json.load(open("apps/desktop/tauri.conf.json")).get("app",{}).get("windows",[])
+print(next((str(x.get("fullscreen","")).lower() for x in w if x.get("label")=="overlay"), ""))
+' 2>/dev/null || true)
+  if [ "$overlay_fs" = "true" ]; then
+    bad "the overlay window sets fullscreen: true, which parks it in another Space (#124)"
+  fi
 else
   note "== code invariants skipped: no Cargo.toml in this tree =="
 fi
