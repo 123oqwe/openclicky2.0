@@ -8,5 +8,6 @@ crates
 docs
 scripts
 CHANGELOG.md
+SECURITY.md
 scripts/install.sh
 scripts/install.ps1
