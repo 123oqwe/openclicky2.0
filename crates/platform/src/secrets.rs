@@ -286,7 +286,10 @@ impl Secrets for PlatformSecrets {
             let why = match (&wrote, &read_back) {
                 (Err(e), _) => format!("write refused: {e}"),
                 (Ok(()), Err(e)) => format!("written but unreadable: {e}"),
-                _ => "written but read back a different value".to_string(),
+                (Ok(()), Ok(None)) =>
+                    "written, then not found when read back: the keychain accepted it and did not keep it"
+                        .to_string(),
+                _ => "written, then read back a different value".to_string(),
             };
             self.give_up(why);
         }

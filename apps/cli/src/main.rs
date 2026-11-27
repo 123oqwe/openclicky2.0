@@ -337,8 +337,15 @@ fn main() -> anyhow::Result<()> {
             }
             app.secrets.set(&name, &key.into())?;
             if !app.secrets.is_durable() {
+                // The reason, not just the outcome: "refused" was the same
+                // sentence for a locked keychain, a refused ACL, and a missing
+                // backend, and none of them are fixed the same way.
+                let why = app
+                    .secrets
+                    .degraded_reason()
+                    .unwrap_or_else(|| "no reason reported".to_string());
                 return Err(anyhow!(
-                    "the key was not stored: this system refused it, and it would vanish when this process exits. Re-run with --remember-file to keep it in an encrypted file in the data directory."
+                    "the key was not stored ({why}). It would vanish when this process exits. Re-run with --remember-file to keep it in an encrypted file in the data directory."
                 ));
             }
             println!("saved {name}");
