@@ -454,9 +454,15 @@ const T = window.__TAURI__;
 
     // A keychain that refuses the write is not a failure the user can retry.
     // Offering the encrypted file is the only way forward, and it is opt-in
-    // because it puts the key on disk.
+    // because it puts the key on disk. The offer goes next to the error, not into
+    // the setup card: a key that lives only in memory still reads as present, so
+    // the card is already gone by the time this runs and a button appended there
+    // is a button nobody sees.
     function offerFileStore() {
-      const host = $('fetchMsg');
+      // Its own container, not the answer <pre>: four places assign textContent
+      // on that node and every assignment drops every child, so a button parked
+      // there vanishes at the next answer, hotkey press, or streamed delta.
+      const host = $('keyOffer');
       host.textContent = '';
       host.append(act('改为存到加密文件', async () => {
         await invoke('allow_file_store');
