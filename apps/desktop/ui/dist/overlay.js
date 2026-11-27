@@ -15,6 +15,19 @@ const T = window.__TAURI__;
       ctx.setTransform(t.a, t.b, t.c, t.d, t.e, t.f);
     }
 
+    // A pointer drawn from the wrong origin is a pointer on the wrong thing, and
+    // the overlay has no surface of its own to complain on. Saying it in the
+    // console of a webview nobody opens is the same as not saying it, so this
+    // goes to the banner the main window polls every two seconds.
+    async function reportOriginProblem(reason) {
+      console.warn('overlay: no window origin available, drawing from 0,0', reason);
+      try {
+        await T.core.invoke('overlay_origin_unavailable', { reason: String(reason) });
+      } catch (err) {
+        console.error('overlay: could not report the missing origin', err);
+      }
+    }
+
     // Asked for on every resize, because the origin is not a constant: the system
     // clamps the window below the menu bar, the user drags it to another display,
     // a display gets plugged in.
@@ -23,7 +36,7 @@ const T = window.__TAURI__;
         const pos = await appWindow.outerPosition();
         return { x: pos.x / dpr, y: pos.y / dpr };
       } catch (err) {
-        console.warn('overlay: no window origin available, drawing from 0,0', err);
+        await reportOriginProblem(err);
         return { x: 0, y: 0 };
       }
     }
