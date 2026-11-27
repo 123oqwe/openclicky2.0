@@ -174,6 +174,8 @@ ROWS = [
  ("TC-APP-001", "单实例锁", "TC-APP-001", "已实现",
   "crates/platform/src/singleton.rs::second_instance_is_refused", ""),
  ("TC-APP-002", "更新包验签", "TC-APP-002", "spec-only", "-", "桌面外壳落地后补"),
+ ("TC-KEY-001", "钥匙存储拒绝写入时保留原因", "TC-KEY-001", "已实现",
+  "crates/platform/src/secrets.rs::a_refusal_keeps_the_backends_own_words", "degraded_reason 保留后端原话，#86"),
 ]
 
 def tests_on_branch(branch):

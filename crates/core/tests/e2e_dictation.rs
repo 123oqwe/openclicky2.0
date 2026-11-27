@@ -102,3 +102,40 @@ fn tick_refuses_password_like_speech() {
         h.injector.texts()
     );
 }
+
+#[test]
+fn dictation_without_accessibility_does_not_ask_to_control_the_computer() {
+    let h = harness(HarnessOpts::default());
+    // The system probe without the trust flag: the state a user is in after
+    // ticking the switch but before the OS notices.
+    h.probe
+        .accessibility
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+
+    let engine = DictationEngine::new(h.deps.clone());
+    engine.start().unwrap();
+    let result = engine.finish().unwrap();
+
+    assert!(
+        h.injector.injected.lock().unwrap().is_empty(),
+        "typing without Accessibility is what raises the dialog with no Allow button"
+    );
+    assert!(
+        result.outcome.is_none(),
+        "nothing was typed, so nothing to report"
+    );
+    let notices: Vec<String> = h
+        .events
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|e| match e {
+            openclicky_core::AppEvent::Notice { code, .. } => Some(code.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        notices.iter().any(|c| c == "E_INJECT_ACCESSIBILITY"),
+        "the banner has to say what is missing: {notices:?}"
+    );
+}

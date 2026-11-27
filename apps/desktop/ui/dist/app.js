@@ -284,14 +284,30 @@ const T = window.__TAURI__;
       $('annotations').hidden = items.length === 0;
     }
 
+    // The card above is the only place a provider can be configured, and it used
+    // to disappear the moment the app was ready. That left the address with no
+    // way in at all after the first run (#143).
+    let settingsOpen = false;
+
     async function refresh() {
       try {
         const s = await invoke('app_state');
         setState(s.state);
         $('meta').textContent = `${s.model || '未选择模型'} · ${s.data_dir}`;
         $('configPath').textContent = s.config_path;
+        // Which endpoint answers is the thing #143 was missing: a stale address in
+        // the file kept answering while the model name changed, and nothing on
+        // screen said where the request went.
+        $('targetNow').textContent = `请求发给 ${s.kind} @ ${s.base_url}`;
+        // The poll below runs every two seconds; rewriting the field while someone
+        // is typing an address would eat it.
+        if (document.activeElement !== $('baseUrl')) $('baseUrl').value = s.base_url;
         renderIssues(s.issues);
-        $('onboard').hidden = !!s.ready && !hasMissingPerms;
+        // Accessibility is the one problem the app cannot fix by reading a file:
+        // the switch lives in System Settings, and asking to type without it is
+        // what raises a dialog with no Allow button (#144).
+        $('fixPerm').hidden = !(s.issues || []).some((i) => i.includes('辅助功能'));
+        $('onboard').hidden = !settingsOpen && !!s.ready && !hasMissingPerms;
         $('chat').style.opacity = s.ready ? '1' : '.5';
 
         const u = await invoke('usage');
@@ -399,10 +415,19 @@ const T = window.__TAURI__;
       await refresh();
     }
 
+    $('openSettings').onclick = () => {
+      settingsOpen = !settingsOpen;
+      $('onboard').hidden = !settingsOpen;
+      $('openSettings').textContent = settingsOpen ? '收起设置' : '设置';
+    };
+
     $('fetch').onclick = async () => {
       $('fetchMsg').textContent = '正在连接…';
       try {
-        const models = await invoke('list_models', { key: $('key').value });
+        const models = await invoke('list_models', {
+          key: $('key').value,
+          baseUrl: $('baseUrl').value,
+        });
         const sel = $('models');
         sel.textContent = '';
         for (const m of models) sel.add(new Option(m, m));
@@ -416,7 +441,11 @@ const T = window.__TAURI__;
 
     async function saveProvider() {
       const model = $('models').value;
-      await invoke('save_provider', { key: $('key').value, model });
+      await invoke('save_provider', {
+        key: $('key').value,
+        model,
+        baseUrl: $('baseUrl').value,
+      });
       $('key').value = '';
       // The card disappearing is the only other signal, and it is easy to miss.
       $('fetchMsg').textContent = `已验证 ${model}，可以直接提问`;
@@ -443,6 +472,10 @@ const T = window.__TAURI__;
         showError(e);
         if (text.includes('E_KEY_NOT_STORED')) offerFileStore();
       }
+    };
+
+    $('fixPerm').onclick = async () => {
+      await invoke('request_permission', { kind: 'accessibility' });
     };
 
     $('reloadConfig').onclick = async () => {

@@ -77,6 +77,15 @@ signing key, treat it as a corruption check, not an authenticity check.
 **A third-party endpoint.** If you point `base_url` at someone else's gateway, what happens
 to your screenshots there is between you and them. See `PRIVACY.md`.
 
+**The system keychain refusing the app's key.** Reproduced on the maintainer's Mac: `openclicky set-key`
+writes the item, and reading it straight back reports no such item, so the app treats the
+keychain as unusable and keeps the key in memory for the life of the process. `openclicky doctor`
+and `set-key` now print that sentence instead of a generic refusal. It is an operating
+system fact about an ad-hoc signed binary, not a hole and not something the app can
+argue its way out of, so do not report it as a vulnerability. The supported answer is
+the encrypted file: `openclicky set-key --remember-file`, or the button the settings page
+offers, which puts the key in `secrets.enc` at mode 0600.
+
 **Local root.** Anyone who can read your user account can read your database and your config.
 Running OpenClicky as another user, or in a container, is not in scope.
 

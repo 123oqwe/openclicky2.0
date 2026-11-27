@@ -102,6 +102,20 @@ if [ "$has_code" -eq 1 ]; then
     bad "capture_all called without a &guard argument"
   fi
 
+  note "== overlay: a pointer is drawn where the plan says it is =="
+  # The overlay window is not at the screen's origin: macOS clamps it below the
+  # menu bar, and a second display puts it somewhere else again. A canvas that
+  # assumes its own top-left is (0,0) draws every stroke that far off, which is
+  # #140. The transform that carries the origin has a case in a node test.
+  if command -v node >/dev/null 2>&1; then
+    if ! overlay_out=$(node --test apps/desktop/ui/overlay-coords.test.js 2>&1); then
+      echo "$overlay_out" | tail -20
+      bad "the overlay transform does not put a plan point back on its screen point"
+    fi
+  else
+    note "   skipped: no node on this machine"
+  fi
+
   note "== linux deps come from one script =="
   # Installing the built artifact itself is fine; declaring a second package
   # list is what drifted. A path argument marks the former.
@@ -151,6 +165,21 @@ if [ "$has_code" -eq 1 ]; then
     elif ! grep -q 'com.apple.security.device.audio-input' "$entitlements_path"; then
       bad "$entitlements_path does not grant com.apple.security.device.audio-input"
     fi
+  fi
+
+  note "== overlay: no native fullscreen transition on a transparent window =="
+  # `fullscreen: true` maps to Fullscreen::Borderless(None). tao runs
+  # set_fullscreen before orderFront (window_delegate.rs:548-561): the transition
+  # opens a new Space and takes the window with it. bounds and alpha stay correct,
+  # onscreen goes false, and the canvas is never composited, so the symptom is
+  # "the pointer does not draw" five layers away from the cause. #124.
+  overlay_fs=$(python3 -c '
+import json
+w = json.load(open("apps/desktop/tauri.conf.json")).get("app",{}).get("windows",[])
+print(next((str(x.get("fullscreen","")).lower() for x in w if x.get("label")=="overlay"), ""))
+' 2>/dev/null || true)
+  if [ "$overlay_fs" = "true" ]; then
+    bad "the overlay window sets fullscreen: true, which parks it in another Space (#124)"
   fi
 else
   note "== code invariants skipped: no Cargo.toml in this tree =="
