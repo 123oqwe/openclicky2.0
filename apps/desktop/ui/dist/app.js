@@ -459,7 +459,11 @@ const T = window.__TAURI__;
     // the card is already gone by the time this runs and a button appended there
     // is a button nobody sees.
     function offerFileStore() {
-      const host = $('answer');
+      // Its own container, not the answer <pre>: four places assign textContent
+      // on that node and every assignment drops every child, so a button parked
+      // there vanishes at the next answer, hotkey press, or streamed delta.
+      const host = $('keyOffer');
+      host.textContent = '';
       host.append(act('改为存到加密文件', async () => {
         await invoke('allow_file_store');
         await saveProvider();
