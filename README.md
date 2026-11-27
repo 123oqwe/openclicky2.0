@@ -6,8 +6,6 @@ talking about. It also dictates, and runs background tasks.
 
 macOS · Windows · Linux
 
-![OpenClicky pointing at the screen it is explaining](docs/screenshots/main.png)
-
 ## Install
 
 macOS and Linux, one line:
