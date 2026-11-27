@@ -823,10 +823,26 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Where this run keeps its config and data.
+///
+/// `OPENCLICKY_DATA_DIR` exists so a test run can point at a scratch directory
+/// instead of the one holding the user's real key. `Paths::resolve` has taken an
+/// override since it was written; the desktop shell just never passed one, which
+/// left "verify a first-run key" requiring the real data directory to be moved
+/// aside by hand.
+fn data_root(env_value: Option<&str>) -> Option<std::path::PathBuf> {
+    let raw = env_value?.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    Some(std::path::PathBuf::from(raw))
+}
+
 fn main() {
     // A second instance would fight over the database, the tray and the global
     // hotkey. Exit silently instead of forking the state.
-    let paths = Paths::resolve(None);
+    let root = data_root(std::env::var("OPENCLICKY_DATA_DIR").ok().as_deref());
+    let paths = Paths::resolve(root.as_deref());
     let _instance = match Singleton::acquire(&paths.lock_file()) {
         Ok(lock) => lock,
         Err(_) => return,
@@ -1279,5 +1295,43 @@ mod provider_target_tests {
         cfg.provider.kind = ProviderKind::OpenaiCompatible;
         apply_provider_target(&mut cfg, Some(""));
         assert_eq!(cfg.provider.base_url, "http://localhost:1234/v1");
+    }
+}
+
+#[cfg(test)]
+mod data_root_tests {
+    use super::*;
+
+    #[test]
+    fn the_environment_variable_moves_both_directories() {
+        let root = data_root(Some("/tmp/openclicky-scratch")).expect("a value means a root");
+        let paths = Paths::resolve(Some(&root));
+        assert_eq!(
+            paths.config_file(),
+            std::path::Path::new("/tmp/openclicky-scratch/config/config.toml")
+        );
+        assert_eq!(
+            paths.data_dir,
+            std::path::Path::new("/tmp/openclicky-scratch/data")
+        );
+    }
+
+    #[test]
+    fn with_no_variable_the_paths_are_the_usual_ones() {
+        assert_eq!(data_root(None), None);
+        let paths = Paths::resolve(None);
+        assert!(
+            paths.data_dir.ends_with("openclicky"),
+            "the default still ends where it always did: {}",
+            paths.data_dir.display()
+        );
+    }
+
+    #[test]
+    fn an_empty_variable_is_not_a_root() {
+        // `OPENCLICKY_DATA_DIR=` in a shell profile must not silently relocate
+        // everything to the current directory.
+        assert_eq!(data_root(Some("")), None);
+        assert_eq!(data_root(Some("   ")), None);
     }
 }
