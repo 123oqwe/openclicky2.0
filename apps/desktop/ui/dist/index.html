@@ -55,7 +55,10 @@
     <div id="issues" class="card" hidden>
       <div class="head">
         <strong>配置有问题</strong>
-        <button id="reloadConfig">重新读取配置</button>
+        <span class="row" style="gap:8px;margin:0">
+          <button id="fixPerm" hidden>打开辅助功能设置</button>
+          <button id="reloadConfig">重新读取配置</button>
+        </span>
       </div>
       <ul id="issueItems"></ul>
       <div class="fix">改好 <code id="configPath">config.toml</code> 后点上面的按钮。</div>
