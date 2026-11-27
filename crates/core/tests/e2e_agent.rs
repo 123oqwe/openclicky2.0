@@ -5,7 +5,7 @@ mod support;
 
 use openclicky_core::agent::runner::AgentDeps;
 use openclicky_core::agent::{TaskRunner, TaskState};
-use openclicky_core::ports::{ChatResponse, FinishReason, TokenUsage, ToolCall};
+use openclicky_core::ports::{ChatResponse, FinishReason, Spend, ToolCall};
 use openclicky_core::store::Store;
 use openclicky_core::tools::Registry;
 use openclicky_core::usage::UsageMeter;
@@ -101,7 +101,7 @@ fn tool_call(name: &str, args: serde_json::Value) -> ChatResponse {
             name: name.into(),
             arguments: args,
         }],
-        usage: TokenUsage {
+        usage: Spend {
             input_tokens: 10,
             output_tokens: 5,
         },
