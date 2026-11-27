@@ -454,16 +454,18 @@ fn list_models(
     key: Option<String>,
     base_url: Option<String>,
 ) -> Result<Vec<String>, String> {
-    if let Some(k) = key.filter(|k| !k.trim().is_empty()) {
-        state
-            .secrets
-            .set(providers::KEY_NAME, &k.as_str().into())
-            .map_err(|e| e.user_message())?;
-    }
     let mut cfg = state.config.read().unwrap().clone();
     apply_provider_target(&mut cfg, base_url.as_deref());
     let target = providers::describe_target(&cfg);
-    providers::build(&cfg, state.http.clone(), state.secrets.clone())
+    // Trying a key is not the same as keeping it. Storing it here meant a key the
+    // keychain accepts on write but cannot read back left `has_key` true, the
+    // onboarding card gone, and the save path that checks durability never
+    // reached. `build_with_key` exercises the key without writing anything.
+    let provider = match key.filter(|k| !k.trim().is_empty()) {
+        Some(k) => providers::build_with_key(&cfg, state.http.clone(), &k.as_str().into()),
+        None => providers::build(&cfg, state.http.clone(), state.secrets.clone()),
+    };
+    provider
         .and_then(|p| p.list_models())
         .map_err(|e| format!("{} ({}) — {}", e.user_message(), e.code(), target))
 }
