@@ -664,3 +664,115 @@ fn the_model_list_is_asked_of_the_address_in_the_config() {
         "the address in the config is the address asked, #143"
     );
 }
+
+/// A key store that takes a write, says it is not durable, and can still answer
+/// a read. That is `PlatformSecrets` after the login key store accepts a write and
+/// loses it: the value lives in its memory map until the process ends.
+struct SelfForgettingStore {
+    stored: Mutex<Vec<(String, String)>>,
+    durable: bool,
+    reason: Mutex<Option<String>>,
+}
+
+impl SelfForgettingStore {
+    fn memory_only() -> std::sync::Arc<Self> {
+        std::sync::Arc::new(Self {
+            stored: Mutex::new(Vec::new()),
+            durable: false,
+            reason: Mutex::new(Some("written, then not found when read back".to_string())),
+        })
+    }
+    fn writes(&self) -> usize {
+        self.stored.lock().unwrap().len()
+    }
+}
+
+impl Secrets for SelfForgettingStore {
+    fn get(&self, k: &str) -> openclicky_core::Result<Option<SecretString>> {
+        Ok(self
+            .stored
+            .lock()
+            .unwrap()
+            .iter()
+            .rev()
+            .find(|(name, _)| name == k)
+            .map(|(_, v)| SecretString::from(v.clone())))
+    }
+    fn set(&self, k: &str, v: &SecretString) -> openclicky_core::Result<()> {
+        self.stored
+            .lock()
+            .unwrap()
+            .push((k.to_string(), v.expose().to_string()));
+        Ok(())
+    }
+    fn delete(&self, k: &str) -> openclicky_core::Result<()> {
+        self.stored.lock().unwrap().retain(|(name, _)| name != k);
+        Ok(())
+    }
+    fn is_durable(&self) -> bool {
+        self.durable
+    }
+    fn degraded_reason(&self) -> Option<String> {
+        self.reason.lock().unwrap().clone()
+    }
+}
+
+#[test]
+fn a_candidate_key_is_used_without_being_stored() {
+    let store = SelfForgettingStore::memory_only();
+    let config = Config::load(Path::new("/nonexistent/openclicky.toml")).unwrap();
+    let http = FakeHttp::json(200, r#"{"data":[{"id":"gpt-real"}]}"#);
+    let key = SecretString::from("sk-typed-by-the-user");
+
+    let models = openclicky_core::providers::check_save(&config, http, Some(&key), "gpt-real")
+        .expect("the list comes back");
+    assert_eq!(models, vec!["gpt-real".to_string()]);
+    assert_eq!(
+        store.writes(),
+        0,
+        "trying a key is not keeping it; the save path is the one that writes"
+    );
+}
+
+#[test]
+fn a_store_that_forgets_the_key_leaves_nothing_behind() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    let store = SelfForgettingStore::memory_only();
+    let mut cfg = Config::load(Path::new("/nonexistent/openclicky.toml")).unwrap();
+    cfg.provider.base_url = "https://gateway.example/v1".into();
+
+    let err = openclicky_core::providers::save_provider(
+        &mut cfg,
+        &path,
+        FakeHttp::json(200, r#"{"data":[{"id":"gpt-real"}]}"#),
+        store.as_ref(),
+        Some(&SecretString::from("sk-typed-by-the-user")),
+        "gpt-real",
+    )
+    .unwrap_err();
+
+    // The marker lives in the message, not in a dedicated variant: `save_provider`
+    // returns `BadRequest`, so the code is E_BAD_REQ and E_KEY_NOT_STORED is the
+    // name the user is given.
+    assert_eq!(err.code(), "E_BAD_REQ");
+    assert!(
+        err.user_message().contains("E_KEY_NOT_STORED"),
+        "the marker the UI names: {}",
+        err.user_message()
+    );
+    assert!(
+        err.user_message()
+            .contains("written, then not found when read back"),
+        "the reason has to reach the user: {}",
+        err.user_message()
+    );
+    assert!(
+        store
+            .get(openclicky_core::providers::KEY_NAME)
+            .unwrap()
+            .is_none(),
+        "a key that will not survive the process must not stay behind, or the \
+         settings card disappears and the user thinks it was saved"
+    );
+}
