@@ -47,16 +47,24 @@ impl Deps {
         permissions: Arc<dyn PermissionProbe>,
         store: Arc<Store>,
         memory: Arc<Memory>,
-        config: Config,
+        config: Arc<RwLock<Config>>,
         events: EventSink,
     ) -> Arc<Self> {
-        let usage = Arc::new(UsageMeter::new(
-            store.clone(),
-            clock.clone(),
-            config.budget.weights.clone(),
-            config.budget.daily_units,
-            config.budget.monthly_units,
-        ));
+        // The caller's lock, not a second one. It used to be a `Config` that this
+        // constructor wrapped, which meant the shell could hold its own lock and
+        // the two drifted apart: a save wrote one and the engine read the other,
+        // so the request carried the model from start-up while the settings page
+        // showed the new one. Taking the Arc makes that unrepresentable.
+        let usage = {
+            let cfg = config.read().unwrap();
+            Arc::new(UsageMeter::new(
+                store.clone(),
+                clock.clone(),
+                cfg.budget.weights.clone(),
+                cfg.budget.daily_units,
+                cfg.budget.monthly_units,
+            ))
+        };
         Arc::new(Self {
             clock,
             screen,
@@ -71,7 +79,7 @@ impl Deps {
             usage,
             memory,
             gate: Arc::new(CaptureGate::new()),
-            config: Arc::new(RwLock::new(config)),
+            config,
             events,
         })
     }

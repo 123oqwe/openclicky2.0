@@ -217,7 +217,7 @@ impl App {
             Arc::new(permissions::SystemProbe),
             self.store.clone(),
             memory.clone(),
-            self.config.clone(),
+            Arc::new(std::sync::RwLock::new(self.config.clone())),
             events,
         );
         let engine = Arc::new(VoiceEngine::new(deps.clone()));
@@ -337,8 +337,15 @@ fn main() -> anyhow::Result<()> {
             }
             app.secrets.set(&name, &key.into())?;
             if !app.secrets.is_durable() {
+                // The reason, not just the outcome: "refused" was the same
+                // sentence for a locked keychain, a refused ACL, and a missing
+                // backend, and none of them are fixed the same way.
+                let why = app
+                    .secrets
+                    .degraded_reason()
+                    .unwrap_or_else(|| "no reason reported".to_string());
                 return Err(anyhow!(
-                    "the key was not stored: this system refused it, and it would vanish when this process exits. Re-run with --remember-file to keep it in an encrypted file in the data directory."
+                    "the key was not stored ({why}). It would vanish when this process exits. Re-run with --remember-file to keep it in an encrypted file in the data directory."
                 ));
             }
             println!("saved {name}");
@@ -416,8 +423,12 @@ fn doctor(app: &App, online: bool) -> anyhow::Result<()> {
     );
     let fallback = app.paths.data_dir.join("secrets.enc");
     if app.secrets.is_degraded() {
-        println!("key store: memory only — no keychain on this system");
+        match app.secrets.degraded_reason() {
+            Some(why) => println!("key store: memory only — {why}"),
+            None => println!("key store: memory only — the system keychain refused it"),
+        }
         println!("           the key is gone when the process exits, so set it again next launch");
+        println!("           to keep it on disk: openclicky set-key --remember-file");
     } else if fallback.exists() {
         println!(
             "key store: encrypted file (0600) — the file key comes from a salt stored beside it"
