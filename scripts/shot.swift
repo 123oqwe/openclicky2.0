@@ -34,6 +34,7 @@ func die(_ message: String, _ code: Int32) -> Never {
 var out: String?
 var region: CGRect?
 var hideOverlay = false
+var displayIndex = 0
 
 var args = Array(CommandLine.arguments.dropFirst())
 while let flag = args.first {
@@ -48,7 +49,15 @@ while let flag = args.first {
         args.removeFirst()
         let parts = value.split(separator: ",").compactMap { Double($0) }
         guard parts.count == 4 else { die("--region needs four numbers: x,y,w,h", 2) }
+        // Coordinates are local to the chosen display, not to the desktop: the
+        // capture only covers one screen.
         region = CGRect(x: parts[0], y: parts[1], width: parts[2], height: parts[3])
+    case "--display":
+        guard let value = args.first, let index = Int(value), index >= 0 else {
+            die("--display needs a display index (0 is the first one CoreGraphics lists)", 2)
+        }
+        args.removeFirst()
+        displayIndex = index
     case "--hide-overlay":
         hideOverlay = true
     default:
@@ -65,18 +74,30 @@ Task {
     defer { semaphore.signal() }
     do {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
-        guard let display = content.displays.first else { die("no display found", 3) }
+        guard displayIndex < content.displays.count else {
+            die("--display \(displayIndex) does not exist; \(content.displays.count) display(s) found", 2)
+        }
+        let display = content.displays[displayIndex]
 
         var excluded: [SCWindow] = []
         if hideOverlay {
             excluded = content.windows.filter { $0.title == "overlay" }
+            // A capture with the overlay left in it is the one thing this flag
+            // exists to prevent, and it used to be reported as a success.
+            if excluded.isEmpty {
+                die("--hide-overlay found no window titled overlay; nothing was hidden", 3)
+            }
         }
 
         let filter = SCContentFilter(display: display, excludingWindows: excluded)
+        // The display's width is in points; the capture wants device pixels. That
+        // factor is 2 on every retina panel and 1 on every other one, so ask
+        // CoreGraphics instead of assuming the machine this was written on.
+        let pixelWidth = CGDisplayPixelsWide(display.displayID)
+        let scale = display.width > 0 ? Double(pixelWidth) / Double(display.width) : 1
         let config = SCStreamConfiguration()
-        // The display's width is in points; double it to keep the native 2x pixels.
-        config.width = display.width * 2
-        config.height = display.height * 2
+        config.width = Int((Double(display.width) * scale).rounded())
+        config.height = Int((Double(display.height) * scale).rounded())
         config.showsCursor = false
         // Without these two the overlay's alpha=0 pixels come out white, which is
         // exactly the false reading that sent #140's measurement sideways.
@@ -108,7 +129,7 @@ Task {
         CGImageDestinationAddImage(dest, image, nil)
         guard CGImageDestinationFinalize(dest) else { die("failed writing \(out)", 3) }
 
-        print("\(image.width)x\(image.height) -> \(out)")
+        print("display \(displayIndex) \(display.width)x\(display.height) @\(scale)x -> \(image.width)x\(image.height) -> \(out)")
         status = 0
     } catch {
         die("capture failed: \(error)", 3)
