@@ -45,6 +45,21 @@ pub fn parse(url: &str) -> Result<ParsedUrl> {
         ));
     }
 
+    // RFC 3986 reg-name: unreserved / pct-encoded / sub-delims. A backslash,
+    // whitespace and control characters are none of those, and a host carrying one
+    // is the shape that made `is_private_host` answer no and the resolver fail, so
+    // the guard waved it through. Refuse here, where the reason is unambiguous.
+    let bare_authority = authority.split(':').next().unwrap_or(authority);
+    if !bare_authority.starts_with('[')
+        && !bare_authority
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-._~%!$&'()*+,;=".contains(c))
+    {
+        return Err(Error::BadRequest(format!(
+            "host has a character that is not allowed in a hostname: {authority:?}"
+        )));
+    }
+
     let (host, port) = if let Some(after_bracket) = authority.strip_prefix('[') {
         // IPv6 literal: [::1] or [::1]:8080
         let (inner, rest) = after_bracket
@@ -99,7 +114,10 @@ pub fn guard_url(url: &str, allow_private: bool) -> Result<String> {
 }
 
 /// Rejects literal private hosts and any name that resolves to one.
-/// Resolution failure is not treated as private: the request itself will fail
+/// Resolution failure is a refusal. It used to be a pass, on the reasoning that the
+/// request itself would then fail, which forgot that the same failure is what an
+/// attacker arranges: a host that looks public to the guard and resolves to
+/// 169.254.169.254 at connect time is the whole attack.
 /// and report a network error, which is the honest outcome.
 pub fn guard_resolved(url: &str, allow_private: bool) -> Result<String> {
     if url.len() > 4096 {
@@ -115,16 +133,21 @@ pub fn guard_resolved(url: &str, allow_private: bool) -> Result<String> {
             parsed.host
         )));
     }
-    let addrs = (parsed.host.as_str(), parsed.port).to_socket_addrs();
-    if let Ok(addrs) = addrs {
-        for addr in addrs {
-            if is_private_ip(addr.ip()) {
-                return Err(Error::PolicyDenied(format!(
-                    "拒绝访问内网地址：{} 解析到 {}（可在设置里允许）",
-                    parsed.host,
-                    addr.ip()
-                )));
-            }
+    let addrs = (parsed.host.as_str(), parsed.port)
+        .to_socket_addrs()
+        .map_err(|e| {
+            Error::PolicyDenied(format!(
+                "无法解析主机 {}，因此无法判断它是不是内网地址：{e}（可在设置里允许）",
+                parsed.host
+            ))
+        })?;
+    for addr in addrs {
+        if is_private_ip(addr.ip()) {
+            return Err(Error::PolicyDenied(format!(
+                "拒绝访问内网地址：{} 解析到 {}（可在设置里允许）",
+                parsed.host,
+                addr.ip()
+            )));
         }
     }
     Ok(parsed.raw)
@@ -238,6 +261,33 @@ pub fn allowed_hosts(base_url: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_backslash_in_the_authority_is_refused() {
+        // The shape from the issue: the authority splits after \x, the host keeps
+        // the backslash, is_private_host answers no, and the resolver fails, which
+        // the guard used to read as "not private, carry on".
+        assert!(guard_resolved("http://169.254.169.254\\x/", false).is_err());
+    }
+
+    #[test]
+    fn a_tab_in_the_authority_is_refused() {
+        assert!(guard_resolved("http://127.0.0.1\t/", false).is_err());
+    }
+
+    #[test]
+    fn a_host_the_resolver_cannot_answer_is_refused() {
+        // A reserved TLD never resolves; refusing it is the point, because the same
+        // failure is what an attacker arranges for a host that will resolve later.
+        assert!(guard_resolved("http://this-host-does-not-exist.invalid/", false).is_err());
+    }
+
+    #[test]
+    fn an_ordinary_public_host_still_passes_the_guard() {
+        // The guard has to keep allowing normal traffic, or every test above proves
+        // only that nothing works. `example.com` resolves and is public.
+        assert!(guard_resolved("https://example.com/v1/models", false).is_ok());
+    }
 
     #[test]
     fn parses_https_default_port() {
