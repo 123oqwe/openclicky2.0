@@ -1,12 +1,39 @@
 # OpenClicky 2.0
 
-An AI buddy that lives on your computer. Hold a key, talk, and it looks at your screen,
-answers out loud, and points/draws directly on the thing it is explaining. It also dictates,
-and runs background tasks.
+An AI buddy that lives on your computer. Hold a key, ask a question out loud, and it looks
+at your screen, answers out loud, and draws an arrow or a circle on the exact thing it is
+talking about. It also dictates, and runs background tasks.
 
 macOS · Windows · Linux
 
-这是源码运行版本，还没有签名安装包。下面四节是照着能跑起来写的，其余细节在 `docs/`。
+## Install
+
+macOS and Linux, one line:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/123oqwe/openclicky2.0/main/scripts/install.sh | sh
+```
+
+Windows, in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/123oqwe/openclicky2.0/main/scripts/install.ps1 | iex
+```
+
+That installs `openclicky` into `~/.local/bin`. On a fresh macOS that directory is not on
+your PATH yet, so the script prints the one line that adds it and you paste it once.
+Where the release carries a desktop shell for your machine, the script installs that too:
+`OpenClicky.app` on macOS, the AppImage plus a menu entry on Linux, and the installer on
+Windows. Then it starts it.
+
+The artifacts are ad-hoc signed, not notarized. macOS blocks the first launch and you have to
+allow it under System Settings → Privacy & Security. That is a known gap, not something you
+did wrong.
+
+`PREFIX` changes the destination (default `~/.local/bin`). `VERSION` pins a release tag.
+
+The rest of this page is in Chinese. The next section is about building from source, which
+you do not need if the one-liner above worked.
 
 ## Requirements
 
@@ -23,7 +50,7 @@ macOS · Windows · Linux
 三个平台同一套命令，只有最后一步的路径不同：
 
 ```bash
-git clone <this repo> && cd openclicky2.0
+git clone https://github.com/123oqwe/openclicky2.0.git && cd openclicky2.0
 cargo build --release
 ./target/release/openclicky doctor          # 先确认环境看对了
 ```
