@@ -368,6 +368,24 @@ impl DictationEngine {
         } else {
             cleanup(&final_text)
         };
+        // Asking to type without Accessibility is what raises the system's
+        // "would like to control this computer" dialog, which offers System
+        // Settings and Deny and no Allow. The dialog is not a request this app
+        // can turn into a permission, so the answer is to not raise it, and to
+        // say on the banner what is missing instead. `#144`.
+        if !self.deps.permissions.accessibility() {
+            self.deps.emit(AppEvent::Notice {
+                code: "E_INJECT_ACCESSIBILITY".into(),
+                message: "听写需要辅助功能权限，这次没有替你输入。系统设置 → 隐私与安全性 → 辅助功能，给 OpenClicky 打勾后再试。".into(),
+            });
+            self.deps.emit(AppEvent::State(crate::voice::State::Idle));
+            return Ok(DictationResult {
+                final_text: payload,
+                injected_text: injected,
+                outcome: None,
+                charged_units: 0.0,
+            });
+        }
         let outcome = self.deps.injector.inject(&payload, &target).ok();
         self.deps.emit(AppEvent::Dictation {
             text: payload.clone(),
