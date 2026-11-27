@@ -291,6 +291,10 @@ const T = window.__TAURI__;
         $('meta').textContent = `${s.model || '未选择模型'} · ${s.data_dir}`;
         $('configPath').textContent = s.config_path;
         renderIssues(s.issues);
+        // Accessibility is the one problem the app cannot fix by reading a file:
+        // the switch lives in System Settings, and asking to type without it is
+        // what raises a dialog with no Allow button (#144).
+        $('fixPerm').hidden = !(s.issues || []).some((i) => i.includes('辅助功能'));
         $('onboard').hidden = !!s.ready && !hasMissingPerms;
         $('chat').style.opacity = s.ready ? '1' : '.5';
 
@@ -443,6 +447,10 @@ const T = window.__TAURI__;
         showError(e);
         if (text.includes('E_KEY_NOT_STORED')) offerFileStore();
       }
+    };
+
+    $('fixPerm').onclick = async () => {
+      await invoke('request_permission', { kind: 'accessibility' });
     };
 
     $('reloadConfig').onclick = async () => {
