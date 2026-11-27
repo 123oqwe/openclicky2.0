@@ -162,6 +162,14 @@ pub trait Secrets: Send + Sync {
     fn is_durable(&self) -> bool {
         true
     }
+    /// Why the store gave up on the system keychain, in the words the backend
+    /// used. `None` when nothing has failed. Without this the reason was thrown
+    /// away and the user was told only that the key would not persist, which is
+    /// the same message for a locked keychain, a refused ACL, and a missing
+    /// backend.
+    fn degraded_reason(&self) -> Option<String> {
+        None
+    }
     /// Ask the store to keep secrets in a local encrypted file instead of the
     /// system keychain. Only a store that has such a fallback accepts.
     fn allow_file_store(&self) -> Result<()> {
