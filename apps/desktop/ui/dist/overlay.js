@@ -52,6 +52,9 @@ const T = window.__TAURI__;
     }
     settled = resize();
     addEventListener('resize', () => { settled = resize(); });
+    // A second belt, not the fix: draw() already asks. This keeps `last` and the
+    // canvas in step when the window moves with a pointer already on screen.
+    appWindow.onMoved(() => { settled = resize(); });
 
     let raf = 0;
 
@@ -86,6 +89,11 @@ const T = window.__TAURI__;
       // to place them; waiting here is what keeps the first frame from being the
       // only one drawn 33 points off.
       await settled;
+      // Moving a window does not fire resize, so an origin read only on resize is
+      // stale the moment the window is dragged or the system re-clamps it, and the
+      // pointer travels with the window. One plan draws once, so reading here costs
+      // one call and closes that whole class of bug instead of one instance of it.
+      origin = await readOrigin();
       let t = 0;
       const stroke = () => {
         paint(plan);
