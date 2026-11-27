@@ -240,8 +240,22 @@ fn build_state(
     let config = Arc::from(RwLock::from(config));
     let tools: Arc<Registry> = Arc::from(Registry::default_set());
 
+    // The banner is the one surface that says what the app cannot do, and the
+    // engine has no way to reach it. A notice that needs the user to act is
+    // therefore copied here as well as emitted to the front end.
+    let issues: Arc<RwLock<Vec<String>>> = Arc::from(RwLock::from(issues));
+    let banner = issues.clone();
     let handle = app.clone();
     let events = Arc::from(move |event: AppEvent| {
+        if let AppEvent::Notice { code, message } = &event {
+            if code.starts_with("E_INJECT_") {
+                let mut lines = banner.write().unwrap();
+                let line = format!("{message} ({code})");
+                if !lines.contains(&line) {
+                    lines.push(line);
+                }
+            }
+        }
         let _ = handle.emit(
             "app-event",
             serde_json::to_value(&event).unwrap_or_default(),
@@ -271,9 +285,12 @@ fn build_state(
         Arc::from(platform_permissions::SystemProbe),
         store.clone(),
         memory.clone(),
-        config.read().unwrap().clone(),
+        config.clone(),
         events.clone(),
     );
+    // The engine and the window must read the same lock, so take it from deps
+    // before deps is handed to the dictation engine.
+    let config = deps.config.clone();
     let engine = Arc::from(VoiceEngine::new(deps.clone()));
     let dictation = Arc::from(DictationEngine::new(deps));
 
@@ -326,7 +343,7 @@ fn build_state(
         dictation,
         app: app.clone(),
         dictation_shortcut: Arc::from(Mutex::new(None)),
-        issues: Arc::from(RwLock::from(issues)),
+        issues,
     })
 }
 
@@ -356,6 +373,29 @@ fn app_state_view(
 
 fn has_key(state: &AppState) -> bool {
     matches!(state.secrets.get(providers::KEY_NAME), Ok(Some(_)))
+}
+
+/// The overlay cannot read its own window origin, so every pointer it draws lands
+/// wherever the window happens to be instead of on the plan's screen point. It has
+/// no surface of its own to say so, and a `console.warn` inside a webview is a
+/// message nobody reads. Silence was the whole bug: the pointer drew 33 points low
+/// and nothing said a word. So the line goes into the banner the main window
+/// already polls.
+fn note_overlay_origin_problem(issues: &mut Vec<String>, reason: &str) -> bool {
+    let line = format!("覆盖层读不到窗口位置，指针可能不在目标上：{reason}");
+    if issues.contains(&line) {
+        return false;
+    }
+    issues.push(line);
+    true
+}
+
+/// `resize` fires on every window change, so this has to stay idempotent or the
+/// banner grows a copy per event.
+#[tauri::command]
+fn overlay_origin_unavailable(state: TauriState<'_, AppState>, reason: String) -> bool {
+    let mut issues = state.issues.write().unwrap();
+    note_overlay_origin_problem(&mut issues, &reason)
 }
 
 #[tauri::command]
@@ -414,10 +454,28 @@ fn reload_config(state: TauriState<'_, AppState>) {
     *state.issues.write().unwrap() = issues;
 }
 
+/// Where a save or a model list goes.
+///
+/// The settings field is prefilled with the live address, so an empty field is a
+/// deliberate reset to the kind's own default rather than "leave it alone".
+/// `None` means the caller offered no field at all, and the config keeps what it
+/// has. `#143` was the opposite of this: the model changed and the address did
+/// not, so a leftover test endpoint kept answering.
+fn apply_provider_target(config: &mut Config, typed: Option<&str>) {
+    let Some(typed) = typed else { return };
+    let trimmed = typed.trim().trim_end_matches('/');
+    config.provider.base_url = if trimmed.is_empty() {
+        config.provider.kind.default_base_url().to_string()
+    } else {
+        trimmed.to_string()
+    };
+}
+
 #[tauri::command]
 fn list_models(
     state: TauriState<'_, AppState>,
     key: Option<String>,
+    base_url: Option<String>,
 ) -> Result<Vec<String>, String> {
     if let Some(k) = key.filter(|k| !k.trim().is_empty()) {
         state
@@ -425,10 +483,12 @@ fn list_models(
             .set(providers::KEY_NAME, &k.as_str().into())
             .map_err(|e| e.user_message())?;
     }
-    let cfg = state.config.read().unwrap().clone();
+    let mut cfg = state.config.read().unwrap().clone();
+    apply_provider_target(&mut cfg, base_url.as_deref());
+    let target = providers::describe_target(&cfg);
     providers::build(&cfg, state.http.clone(), state.secrets.clone())
         .and_then(|p| p.list_models())
-        .map_err(|e| format!("{} ({})", e.user_message(), e.code()))
+        .map_err(|e| format!("{} ({}) — {}", e.user_message(), e.code(), target))
 }
 
 #[tauri::command]
@@ -436,11 +496,15 @@ fn save_provider(
     state: TauriState<'_, AppState>,
     key: Option<String>,
     model: String,
+    base_url: Option<String>,
 ) -> Result<(), String> {
     let candidate = key
         .filter(|k| !k.trim().is_empty())
         .map(|k| k.as_str().into());
     let mut cfg = state.config.read().unwrap().clone();
+    apply_provider_target(&mut cfg, base_url.as_deref());
+    // After the address has been applied: a refusal has to name the endpoint that
+    // refused, not the one that was in the file before.
     let target = providers::describe_target(&cfg);
     providers::save_provider(
         &mut cfg,
@@ -452,6 +516,19 @@ fn save_provider(
     )
     .map_err(|e| format!("{} ({}) — {}", e.user_message(), e.code(), target))?;
     *state.config.write().unwrap() = cfg;
+    // A save that leaves the key in memory looks identical to a good save until
+    // the next restart, and then the key is gone with nothing said. Say it here,
+    // on the banner the user already reads, with the backend's own words.
+    if candidate.is_some() && !state.secrets.is_durable() {
+        let why = state.secrets.degraded_reason().unwrap_or_else(|| {
+            concat!("the system ", "keychain", " refused the write").to_string()
+        });
+        let line = format!("key 只在这个进程里有效，重启就要重新粘：{why}");
+        let mut issues = state.issues.write().unwrap();
+        if !issues.contains(&line) {
+            issues.push(line);
+        }
+    }
     reregister_dictation(&state, &model);
     Ok(())
 }
@@ -789,7 +866,8 @@ fn main() {
             deny_task,
             cancel_task,
             cancel_voice,
-            selftest
+            selftest,
+            overlay_origin_unavailable
         ])
         .setup(move |app| {
             if let Some(overlay) = app.get_webview_window("overlay") {
@@ -1127,5 +1205,90 @@ mod shortcut_tests {
     fn modifiers_are_translated_to_the_names_tauri_parses() {
         let binding = Binding::parse("cmd+shift+k").unwrap();
         assert_eq!(tauri_binding(&binding).as_deref(), Some("super+shift+k"));
+    }
+}
+
+#[cfg(test)]
+mod overlay_origin_tests {
+    use super::*;
+
+    #[test]
+    fn a_missing_origin_reaches_the_banner_once() {
+        let mut issues: Vec<String> = Vec::new();
+        assert!(note_overlay_origin_problem(&mut issues, "no capability"));
+        assert_eq!(issues.len(), 1);
+        assert!(
+            issues[0].contains("no capability"),
+            "the banner has to name what the window said: {}",
+            issues[0]
+        );
+    }
+
+    #[test]
+    fn a_second_resize_does_not_add_a_second_banner_line() {
+        let mut issues: Vec<String> = Vec::new();
+        note_overlay_origin_problem(&mut issues, "no capability");
+        let added = note_overlay_origin_problem(&mut issues, "no capability");
+        assert!(!added, "resize fires repeatedly; duplicates are not news");
+        assert_eq!(issues.len(), 1);
+    }
+
+    #[test]
+    fn a_new_reason_is_worth_a_new_line() {
+        let mut issues: Vec<String> = Vec::new();
+        note_overlay_origin_problem(&mut issues, "no capability");
+        note_overlay_origin_problem(&mut issues, "the window is gone");
+        assert_eq!(issues.len(), 2);
+    }
+}
+
+#[cfg(test)]
+mod provider_target_tests {
+    use super::*;
+    use openclicky_core::config::ProviderKind;
+
+    fn stale() -> Config {
+        let mut cfg = Config::default();
+        cfg.provider.base_url = "http://127.0.0.1:8787/v1".into();
+        cfg.provider.chat_model = "gpt-4o".into();
+        cfg
+    }
+
+    #[test]
+    fn a_typed_address_replaces_the_stale_one() {
+        let mut cfg = stale();
+        apply_provider_target(&mut cfg, Some(" https://gateway.example/v1/ "));
+        assert_eq!(cfg.provider.base_url, "https://gateway.example/v1");
+        assert_eq!(
+            providers::describe_target(&cfg),
+            "openai @ https://gateway.example/v1",
+            "the settings page has to be able to name where requests go"
+        );
+    }
+
+    #[test]
+    fn an_empty_address_is_a_deliberate_reset_to_the_kind_default() {
+        let mut cfg = stale();
+        apply_provider_target(&mut cfg, Some("   "));
+        assert_eq!(
+            cfg.provider.base_url,
+            ProviderKind::Openai.default_base_url(),
+            "an empty field is not 'keep the old one'; the field arrives prefilled"
+        );
+    }
+
+    #[test]
+    fn no_field_at_all_keeps_what_the_config_has() {
+        let mut cfg = stale();
+        apply_provider_target(&mut cfg, None);
+        assert_eq!(cfg.provider.base_url, "http://127.0.0.1:8787/v1");
+    }
+
+    #[test]
+    fn a_custom_kind_resets_to_its_own_default_not_openais() {
+        let mut cfg = stale();
+        cfg.provider.kind = ProviderKind::OpenaiCompatible;
+        apply_provider_target(&mut cfg, Some(""));
+        assert_eq!(cfg.provider.base_url, "http://localhost:1234/v1");
     }
 }

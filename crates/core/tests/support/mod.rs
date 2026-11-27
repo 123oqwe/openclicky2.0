@@ -575,6 +575,8 @@ impl CommandRunner for FakeCommands {
 
 pub struct Harness {
     pub deps: Arc<Deps>,
+    /// The same lock the engine reads. A save goes through this one.
+    pub config: Arc<std::sync::RwLock<Config>>,
     pub clock: Arc<FakeClock>,
     pub screen: Arc<FakeScreen>,
     pub audio: Arc<FakeAudio>,
@@ -646,6 +648,7 @@ pub fn harness(opts: HarnessOpts) -> Harness {
     std::fs::create_dir_all(&workspace).unwrap();
 
     let clock = FakeClock::new();
+    let config = Arc::new(std::sync::RwLock::new(config));
     let deps = Deps::new(
         clock.clone(),
         screen.clone(),
@@ -663,6 +666,7 @@ pub fn harness(opts: HarnessOpts) -> Harness {
     );
 
     Harness {
+        config: deps.config.clone(),
         deps,
         clock,
         screen,

@@ -36,7 +36,7 @@
 | spec-only | 还没有对应测试 | 计未执行 |
 
 <!-- TDS-MATRIX:BEGIN -->
-共 72 条：已实现 71、部分 0、spec-only 1。**只有 `已实现` 才能在执行报告中计入通过；`部分` 与 `spec-only` 一律计入未执行/未覆盖。**
+共 73 条：已实现 72、部分 0、spec-only 1。**只有 `已实现` 才能在执行报告中计入通过；`部分` 与 `spec-only` 一律计入未执行/未覆盖。**
 
 | 用例 | 要求 | TC | 状态 | 证据（真实测试） | 备注 |
 |---|---|---|---|---|---|
@@ -112,6 +112,7 @@
 | TC-SEC-006 | 删除逐表报告 | TC-SEC-006 | **已实现** | `crates/core/src/deletion.rs::removes_every_local_artifact_and_reports_it` | 八步 + 范围外声明 |
 | TC-APP-001 | 单实例锁 | TC-APP-001 | **已实现** | `crates/platform/src/singleton.rs::second_instance_is_refused` | — |
 | TC-APP-002 | 更新包验签 | TC-APP-002 | **spec-only** | — | 桌面外壳落地后补 |
+| TC-KEY-001 | 钥匙存储拒绝写入时保留原因 | TC-KEY-001 | **已实现** | `crates/platform/src/secrets.rs::a_refusal_keeps_the_backends_own_words` | degraded_reason 保留后端原话，#86 |
 <!-- TDS-MATRIX:END -->
 
 **反向追踪的检查方式**：`python3 scripts/tds-evidence.py` 会对每条 `已实现` 做 `git grep` 校验；任何引用不存在的测试都会让脚本以非 0 退出，CI 会拦下。
