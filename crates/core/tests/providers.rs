@@ -59,10 +59,11 @@ impl LineStream for Lines {
 impl HttpTransport for FakeHttp {
     fn get(
         &self,
-        _u: &str,
+        u: &str,
         _h: &[(String, String)],
         _t: Duration,
     ) -> openclicky_core::Result<HttpResponse> {
+        *self.last_url.lock().unwrap() = Some(u.to_string());
         Ok(self
             .response
             .lock()
@@ -641,5 +642,25 @@ fn an_empty_stt_base_falls_back_to_the_chat_base() {
     assert_eq!(
         http.url().as_deref(),
         Some("http://127.0.0.1:8795/v1/audio/transcriptions")
+    );
+}
+
+#[test]
+fn the_model_list_is_asked_of_the_address_in_the_config() {
+    let mut config = Config::load(Path::new("/nonexistent/openclicky.toml")).unwrap();
+    config.provider.base_url = "http://127.0.0.1:8787/v1/".to_string();
+    let http = FakeHttp::json(200, r#"{"data":[{"id":"gpt-4o"}]}"#);
+    let models = openclicky_core::providers::check_save(
+        &config,
+        http.clone(),
+        Some(&SecretString::from("sk-good")),
+        "gpt-4o",
+    )
+    .expect("a healthy gateway answers");
+    assert_eq!(models, vec!["gpt-4o".to_string()]);
+    assert_eq!(
+        http.url().as_deref(),
+        Some("http://127.0.0.1:8787/v1/models"),
+        "the address in the config is the address asked, #143"
     );
 }
