@@ -10,8 +10,9 @@
 # in a flat download. This installs the right one under the plain name, which is
 # what every example in the README and CHANGELOG assumes.
 #
-# Override the destination with PREFIX (default ~/.local/bin) and pin a version
-# with VERSION (default: the latest release).
+# Override the destination with PREFIX (default ~/.local/bin), pin a version with
+# VERSION (default: the latest release), and skip the launch at the end with
+# NO_LAUNCH=1, which is what CI and a headless machine need.
 set -euo pipefail
 
 REPO="123oqwe/openclicky2.0"
@@ -28,8 +29,10 @@ for arg in "$@"; do
         --uninstall) action=uninstall ;;
         -h | --help)
             say "usage: install.sh [--uninstall]"
-            say "  PREFIX   where the CLI goes (default ~/.local/bin)"
-            say "  VERSION  pin a release tag (default: latest)"
+            say "  PREFIX        where the CLI goes (default ~/.local/bin)"
+            say "  VERSION       pin a release tag (default: latest)"
+            say "  NO_LAUNCH=1   install without starting OpenClicky"
+            say "  RELEASE_BASE  download from somewhere else (a mirror, or file://)"
             exit 0
             ;;
         *) die "unknown option ${arg}" ;;
@@ -47,7 +50,9 @@ mac_app="${apps_dir}/OpenClicky.app"
 desktop_entry="${XDG_DATA_HOME:-$HOME/.local/share}/applications/openclicky.desktop"
 
 release_base() {
-    if [ -n "$VERSION" ]; then
+    if [ -n "${RELEASE_BASE:-}" ]; then
+        printf '%s' "$RELEASE_BASE"
+    elif [ -n "$VERSION" ]; then
         printf 'https://github.com/%s/releases/download/%s' "$REPO" "$VERSION"
     else
         printf 'https://github.com/%s/releases/latest/download' "$REPO"
@@ -60,9 +65,43 @@ release_base() {
 # a constructed name 404 while the real asset sits right there.
 asset_name() {
     local pattern="$1"
-    curl -fsSL "$RELEASES_API" \
+    # `|| true`: no match is a normal answer here, and under `set -e` an empty
+    # grep would kill the installer silently instead of saying the release has no
+    # desktop build.
+    curl -fsSL "$RELEASES_API" 2>/dev/null \
         | sed -n 's/.*"name": *"\([^"]*\)".*/\1/p' \
-        | grep -E "$pattern" | head -1
+        | grep -E "$pattern" | head -1 || true
+}
+
+sha256_of() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$1" | awk '{print $1}'
+    else
+        die "no sha256 tool: install coreutils, or use a system with shasum"
+    fi
+}
+
+# Integrity, not authenticity: SHA256SUMS is unsigned and comes from the host that
+# served the asset, so it catches a truncated or swapped download and nothing more.
+verify_asset() {
+    local file="$1" name="$2" base="$3" expected actual
+    local sums
+    if ! sums="$(curl -fsSL "${base}/SHA256SUMS")"; then
+        die "could not fetch ${base}/SHA256SUMS, so nothing can be verified. Nothing was installed."
+    fi
+    expected="$(printf '%s\n' "$sums" | awk -v n="$name" '$2 == n { print $1 }' | head -1)"
+    if [ -z "$expected" ]; then
+        die "${name} is not listed in SHA256SUMS, so it cannot be verified. Nothing was installed."
+    fi
+    actual="$(sha256_of "$file")"
+    if [ "$actual" != "$expected" ]; then
+        die "${name} does not match SHA256SUMS. Nothing was installed.
+  expected ${expected}
+  got      ${actual}"
+    fi
+    say "verified ${name}"
 }
 
 uninstall() {
@@ -85,12 +124,9 @@ uninstall() {
 
 install_cli() {
     local asset="openclicky-${os}"
-    local url
-    if [ -n "$VERSION" ]; then
-        url="https://github.com/${REPO}/releases/download/${VERSION}/${asset}"
-    else
-        url="https://github.com/${REPO}/releases/latest/download/${asset}"
-    fi
+    local base url
+    base="$(release_base)"
+    url="${base}/${asset}"
 
     # global on purpose: the EXIT trap outlives this function, and a local would
     # be gone by the time it fires.
@@ -100,6 +136,7 @@ install_cli() {
     say "downloading ${asset}"
     command -v curl >/dev/null 2>&1 || die "curl is required"
     curl -fsSL "$url" -o "$tmp/openclicky" || die "download failed: $url"
+    verify_asset "$tmp/openclicky" "$asset" "$base"
 
     # Artifact uploads do not keep the executable bit, so the download is 644 and
     # has to be made runnable before anything else.
@@ -135,6 +172,7 @@ install_desktop() {
         rm -rf "$tmp"
         return 0
     fi
+    verify_asset "$tmp/${name}" "$name" "$base"
 
     if [ "$os" = "macos" ]; then
         mkdir -p "$apps_dir"
@@ -184,7 +222,7 @@ case ":$PATH:" in
     *)
         say ""
         say "  ${PREFIX} is not on PATH. Add it:"
-        say "    echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc"
+        say "    echo 'export PATH=\"${PREFIX}:\$PATH\"' >> ~/.zshrc"
         ;;
 esac
 
@@ -193,3 +231,21 @@ say "next:"
 say "  openclicky set-key      # paste your provider key"
 say "  openclicky doctor       # check permissions"
 say "  openclicky app          # start the desktop shell"
+
+launch() {
+    [ "${NO_LAUNCH:-0}" = "1" ] && return 0
+    case "$os" in
+        macos)
+            [ -d "$mac_app" ] || return 0
+            say "starting OpenClicky"
+            open "$mac_app" || say "  could not start it; run: open \"$mac_app\""
+            ;;
+        linux)
+            [ -x "$PREFIX/OpenClicky.AppImage" ] || return 0
+            say "starting OpenClicky"
+            exec "$PREFIX/OpenClicky.AppImage"
+            ;;
+    esac
+}
+
+launch
