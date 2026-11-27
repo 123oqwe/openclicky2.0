@@ -240,8 +240,22 @@ fn build_state(
     let config = Arc::from(RwLock::from(config));
     let tools: Arc<Registry> = Arc::from(Registry::default_set());
 
+    // The banner is the one surface that says what the app cannot do, and the
+    // engine has no way to reach it. A notice that needs the user to act is
+    // therefore copied here as well as emitted to the front end.
+    let issues: Arc<RwLock<Vec<String>>> = Arc::from(RwLock::from(issues));
+    let banner = issues.clone();
     let handle = app.clone();
     let events = Arc::from(move |event: AppEvent| {
+        if let AppEvent::Notice { code, message } = &event {
+            if code.starts_with("E_INJECT_") {
+                let mut lines = banner.write().unwrap();
+                let line = format!("{message} ({code})");
+                if !lines.contains(&line) {
+                    lines.push(line);
+                }
+            }
+        }
         let _ = handle.emit(
             "app-event",
             serde_json::to_value(&event).unwrap_or_default(),
@@ -326,7 +340,7 @@ fn build_state(
         dictation,
         app: app.clone(),
         dictation_shortcut: Arc::from(Mutex::new(None)),
-        issues: Arc::from(RwLock::from(issues)),
+        issues,
     })
 }
 
