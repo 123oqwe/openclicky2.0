@@ -194,7 +194,17 @@ jobs:
           kill "$PID" || true
           # A window count here needs the accessibility grant, which a runner
           # cannot give itself, so macOS stops at "the process survived".
-          defaults read /tmp/App.app/Contents/Info.plist CFBundleShortVersionString
+          #
+          # The version is the one claim this job can still check, and printing it
+          # checked nothing: a bundle carrying the previous release would have read
+          # as a pass. Compare it with what the crate says instead.
+          in_bundle=$(defaults read /tmp/App.app/Contents/Info.plist CFBundleShortVersionString)
+          expected=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          echo "bundle $in_bundle, crate $expected"
+          if [ "$in_bundle" != "$expected" ]; then
+            echo "::error::the app reports $in_bundle but this tree builds $expected"
+            exit 1
+          fi
       - name: Install and launch (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
