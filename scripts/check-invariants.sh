@@ -152,6 +152,16 @@ if [ "$has_code" -eq 1 ]; then
     bad "no PermissionProbe port wired in core"
   fi
 
+  note "== release: the crate and the bundle carry the same version =="
+  # Three files have to move together (Cargo.toml, tauri.conf.json, Cargo.lock) and
+  # nothing checked them. One missed edit publishes OpenClicky_2.0.3.dmg with 2.1.0
+  # inside it, and a version number is public the moment it lands.
+  crate_version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+  bundle_version=$(python3 -c 'import json;print(json.load(open("apps/desktop/tauri.conf.json"))["version"])' 2>/dev/null || true)
+  if [ "$crate_version" != "$bundle_version" ]; then
+    bad "Cargo.toml says ${crate_version:-?} and tauri.conf.json says ${bundle_version:-?}"
+  fi
+
   note "== macos: the bundle declares audio input, or TCC refuses to prompt =="
   # A probing code path is not enough. Without the entitlement, macOS answers
   # every microphone request by refusing, and no amount of UI can fix that.
