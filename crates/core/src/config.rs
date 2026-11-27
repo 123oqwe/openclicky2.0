@@ -48,10 +48,8 @@ pub struct ProviderConfig {
     pub fast_model: String,
     pub deep_model: String,
     pub stt_model: String,
-    pub tts_model: String,
     pub tts_voice: String,
     pub stt_base_url: String,
-    pub region_hint: String,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -90,10 +88,8 @@ impl Default for ProviderConfig {
             fast_model: String::new(),
             deep_model: String::new(),
             stt_model: "whisper-1".into(),
-            tts_model: "gpt-4o-mini-tts".into(),
             tts_voice: "alloy".into(),
             stt_base_url: String::new(),
-            region_hint: String::new(),
         }
     }
 }

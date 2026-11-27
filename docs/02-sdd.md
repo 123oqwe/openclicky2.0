@@ -969,10 +969,8 @@ chat_model = ""            # 空 = 首次引导时选择
 fast_model = ""            # 空 = 同 chat_model
 deep_model = ""
 stt_model = "whisper-1"
-tts_model = "gpt-4o-mini-tts"
 tts_voice = "alloy"
 stt_base_url = ""          # 空 = 同 base_url
-region_hint = ""
 
 [voice]
 captions = true
