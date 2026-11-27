@@ -177,6 +177,34 @@ if [ "$has_code" -eq 1 ]; then
     fi
   fi
 
+  note "== install: the command the README prints works under sh =="
+  # The README ends the line in `| sh`, and on Ubuntu and Debian that is dash, which
+  # has no `set -o pipefail`. The script used to die there having installed nothing,
+  # and the release smoke never noticed because it installs the .deb instead of
+  # running the line the documentation promises.
+  # Captured rather than piped into grep -q: grep exits on the first match, the
+  # writer takes SIGPIPE, and this script runs with pipefail, so the pipeline
+  # reports failure for output that was correct.
+  if command -v dash >/dev/null 2>&1; then
+    dash_out="$(dash scripts/install.sh --help 2>&1 || true)"
+    case "$dash_out" in
+      *"Illegal option"*)
+        bad "scripts/install.sh dies under dash; the README's | sh installs nothing" ;;
+      usage:*)
+        ;;
+      *)
+        bad "scripts/install.sh did not print usage under dash: ${dash_out%%\n*}" ;;
+    esac
+    # The piped route has no file to hand to bash, so it exercises the POSIX branch.
+    piped_out="$(dash -c 'set -- --help; . ./scripts/install.sh' 2>&1 || true)"
+    case "$piped_out" in
+      usage:*) ;;
+      *) bad "scripts/install.sh does not survive being piped into dash: ${piped_out%%\n*}" ;;
+    esac
+  else
+    note "   skipped: no dash on this machine; CI runs this on ubuntu"
+  fi
+
   note "== overlay: no native fullscreen transition on a transparent window =="
   # `fullscreen: true` maps to Fullscreen::Borderless(None). tao runs
   # set_fullscreen before orderFront (window_delegate.rs:548-561): the transition
