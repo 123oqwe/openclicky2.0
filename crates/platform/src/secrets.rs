@@ -72,6 +72,10 @@ impl PlatformSecrets {
         }
     }
 
+    // Only the system-key-store branches above call this. Linux has no such
+    // branch, and a `#[cfg]` here is honest where an `#[allow(dead_code)]` would
+    // hide the next function that really is unused.
+    #[cfg(not(target_os = "linux"))]
     fn give_up(&self, why: String) {
         self.degraded.store(true, Ordering::Relaxed);
         if let Ok(mut slot) = self.degraded_reason.lock() {
@@ -414,6 +418,9 @@ mod tests {
         (dir, store)
     }
 
+    // Same reason as `give_up` itself: the refusal it describes only exists where
+    // there is a system key store to refuse.
+    #[cfg(not(target_os = "linux"))]
     #[test]
     fn a_refusal_keeps_the_backends_own_words() {
         let (_dir, store) = memory_only();
