@@ -375,6 +375,29 @@ fn has_key(state: &AppState) -> bool {
     matches!(state.secrets.get(providers::KEY_NAME), Ok(Some(_)))
 }
 
+/// The overlay cannot read its own window origin, so every pointer it draws lands
+/// wherever the window happens to be instead of on the plan's screen point. It has
+/// no surface of its own to say so, and a `console.warn` inside a webview is a
+/// message nobody reads. Silence was the whole bug: the pointer drew 33 points low
+/// and nothing said a word. So the line goes into the banner the main window
+/// already polls.
+fn note_overlay_origin_problem(issues: &mut Vec<String>, reason: &str) -> bool {
+    let line = format!("覆盖层读不到窗口位置，指针可能不在目标上：{reason}");
+    if issues.contains(&line) {
+        return false;
+    }
+    issues.push(line);
+    true
+}
+
+/// `resize` fires on every window change, so this has to stay idempotent or the
+/// banner grows a copy per event.
+#[tauri::command]
+fn overlay_origin_unavailable(state: TauriState<'_, AppState>, reason: String) -> bool {
+    let mut issues = state.issues.write().unwrap();
+    note_overlay_origin_problem(&mut issues, &reason)
+}
+
 #[tauri::command]
 fn app_state(state: TauriState<'_, AppState>) -> serde_json::Value {
     let config = state.config.read().unwrap();
@@ -843,7 +866,8 @@ fn main() {
             deny_task,
             cancel_task,
             cancel_voice,
-            selftest
+            selftest,
+            overlay_origin_unavailable
         ])
         .setup(move |app| {
             if let Some(overlay) = app.get_webview_window("overlay") {
@@ -1181,6 +1205,40 @@ mod shortcut_tests {
     fn modifiers_are_translated_to_the_names_tauri_parses() {
         let binding = Binding::parse("cmd+shift+k").unwrap();
         assert_eq!(tauri_binding(&binding).as_deref(), Some("super+shift+k"));
+    }
+}
+
+#[cfg(test)]
+mod overlay_origin_tests {
+    use super::*;
+
+    #[test]
+    fn a_missing_origin_reaches_the_banner_once() {
+        let mut issues: Vec<String> = Vec::new();
+        assert!(note_overlay_origin_problem(&mut issues, "no capability"));
+        assert_eq!(issues.len(), 1);
+        assert!(
+            issues[0].contains("no capability"),
+            "the banner has to name what the window said: {}",
+            issues[0]
+        );
+    }
+
+    #[test]
+    fn a_second_resize_does_not_add_a_second_banner_line() {
+        let mut issues: Vec<String> = Vec::new();
+        note_overlay_origin_problem(&mut issues, "no capability");
+        let added = note_overlay_origin_problem(&mut issues, "no capability");
+        assert!(!added, "resize fires repeatedly; duplicates are not news");
+        assert_eq!(issues.len(), 1);
+    }
+
+    #[test]
+    fn a_new_reason_is_worth_a_new_line() {
+        let mut issues: Vec<String> = Vec::new();
+        note_overlay_origin_problem(&mut issues, "no capability");
+        note_overlay_origin_problem(&mut issues, "the window is gone");
+        assert_eq!(issues.len(), 2);
     }
 }
 
