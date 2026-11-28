@@ -110,17 +110,63 @@ pub fn write_text(root: &Path, rel: &str, content: &str, append: bool) -> Result
 
 /// `allow_outside` is only ever true after an explicit user approval; the write
 /// is still confined to paths whose parent directory exists.
+/// The same resolution `canonical_escape` uses: walk up to the deepest part that
+/// exists, canonicalise that, and put the rest back. Two lexical answers to "what is
+/// this path" in one file is how `the_policy_and_the_writer_agree_about_what_is_outside`
+/// gets a hole, so the protected check goes through links exactly like the workspace
+/// check does.
+fn resolve_through_links(path: &Path) -> std::path::PathBuf {
+    let mut tail: Vec<std::ffi::OsString> = Vec::new();
+    let mut probe = path.to_path_buf();
+    while !probe.exists() {
+        match probe.file_name() {
+            Some(name) => {
+                tail.push(name.to_os_string());
+                if !probe.pop() {
+                    return path.to_path_buf();
+                }
+            }
+            None => return path.to_path_buf(),
+        }
+    }
+    let mut resolved = std::fs::canonicalize(&probe).unwrap_or(probe);
+    for part in tail.into_iter().rev() {
+        resolved.push(part);
+    }
+    resolved
+}
+
 /// Paths the application keeps its own state in. A tool may never write these,
 /// approved or not: `config.toml` decides which endpoint receives screenshots and
 /// the key, `app.db` holds the conversation, `memory/` holds what the user asked to
 /// be remembered, and `secrets.enc` is the key itself. One approved write here is a
 /// permanent redirect of everything the app sends.
 pub fn protected_hit(path: &Path, protected: &[std::path::PathBuf]) -> Option<std::path::PathBuf> {
-    let candidate = normalise(path).ok()?;
+    let candidate = resolve_through_links(&normalise(path).ok()?);
     protected
         .iter()
         .filter_map(|entry| normalise(entry).ok())
-        .find(|entry| candidate == *entry || candidate.starts_with(entry))
+        .find(|entry| {
+            let entry = resolve_through_links(entry);
+            // A database is more than its own filename: `app.db-wal`, `app.db-shm`
+            // and `app.db.bak` are the same thing mid-write, and an exact match
+            // misses all three. Only at the top level, so protecting a directory of
+            // data does not swallow the workspace underneath it.
+            if let (Some(parent), Some(name)) = (entry.parent(), entry.file_name()) {
+                if candidate.parent() == Some(parent) {
+                    if let Some(candidate_name) = candidate.file_name() {
+                        let prefix = format!("{}-", name.to_string_lossy());
+                        let whole = name.to_string_lossy().to_string();
+                        if candidate_name.to_string_lossy() == whole
+                            || candidate_name.to_string_lossy().starts_with(&prefix)
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+            candidate == entry || candidate.starts_with(&entry)
+        })
 }
 
 fn refuse_if_protected(path: &Path, protected: &[std::path::PathBuf]) -> Result<()> {

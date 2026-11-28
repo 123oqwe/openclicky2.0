@@ -174,6 +174,9 @@ ROWS = [
  ("TC-APP-001", "单实例锁", "TC-APP-001", "已实现",
   "crates/platform/src/singleton.rs::second_instance_is_refused", ""),
  ("TC-APP-002", "更新包验签", "TC-APP-002", "spec-only", "-", "桌面外壳落地后补"),
+ ("TC-TOOL-001", "\u5de5\u5177\u4e0d\u80fd\u5199\u5e94\u7528\u81ea\u5df1\u7684\u914d\u7f6e\u4e0e\u6570\u636e", "TC-TOOL-001", "\u5df2\u5b9e\u73b0",
+  "crates/core/tests/e2e_agent.rs::an_approved_outside_write_still_cannot_touch_the_apps_own_files",
+  "protected_hit \u62e6\u914d\u7f6e\u3001app.db \u540c\u65cf\u3001\u7b26\u53f7\u94fe\u63a5\uff0c\u5e76\u4fdd\u7559\u666e\u901a\u8d8a\u754c\u5199"),
  ("TC-KEY-001", "钥匙存储拒绝写入时保留原因", "TC-KEY-001", "已实现",
   "crates/platform/src/secrets.rs::a_refusal_keeps_the_backends_own_words", "degraded_reason 保留后端原话，#86"),
 ]
