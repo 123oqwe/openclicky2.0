@@ -5,12 +5,14 @@ The rules that judge docs are correct and the current docs do not meet them: 37
 places are thin or partial today. A gate that is red on every commit gets deleted
 within a week, so the debt is recorded instead and the record may only shrink.
 
-Three things are red:
+These are red:
   a violation that is not in the record        (new debt)
   a record entry that no longer violates       (stale debt, delete the line)
   a record longer than the one on origin/main  (the record grew)
+  a generated record that does not match       (stale coverage or audit output)
 """
 import argparse
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -20,21 +22,33 @@ DEBT = ROOT / "docs/.doc-debt"
 
 
 def violations():
+    """Debt rows, and violation lines that are not rows.
+
+    A freshness mismatch is `VIOLATION: path does not match...` with no middle
+    dots. Dropping every line with fewer than three parts made a stale
+    coverage.md or audit-output.md invisible, and `git diff` cannot see it
+    either: --check renders in memory and does not write the file.
+    """
     out = []
+    other = []
     for script in ("criteria-coverage.py", "doc-audit.py"):
+        # The auditors print Chinese headings as UTF-8 (they reconfigure
+        # stdout). text=True without an encoding decodes with the locale, which
+        # is cp1252 on the Windows rust job, so every key mojibakes.
         run = subprocess.run(
             [sys.executable, str(ROOT / "scripts" / script), "--check"],
-            capture_output=True, text=True, cwd=ROOT,
+            capture_output=True, text=True, encoding="utf-8", cwd=ROOT,
         )
-        for line in (run.stdout + run.stderr).splitlines():
+        for line in ((run.stdout or "") + (run.stderr or "")).splitlines():
             if not line.startswith("VIOLATION:"):
                 continue
             body = line[len("VIOLATION:"):].strip()
             parts = [p.strip() for p in body.split("·")]
             if len(parts) < 3:
+                other.append(line)
                 continue
             out.append(" :: ".join((parts[0], parts[1], parts[2])))
-    return out
+    return out, other
 
 
 def recorded():
@@ -44,18 +58,31 @@ def recorded():
             if line.strip() and not line.startswith("#")]
 
 
+# Same heading rule as doc-audit.py and criteria-coverage.py. `##` and `###`
+# open a numbered section; `01.1`, `4.1` and `22.1` stay inside that number.
+# A deeper heading such as `#### 4.1` is body, not a new section.
+SECTION = re.compile(r"^#{2,3}\s+(?:(\d{1,2})(?:\.\d+)?)(?![0-9])")
+
+
 def section_span(text, number):
-    """Line range of the section whose heading starts with `number`."""
+    """1-based inclusive line range of the section numbered `number`."""
+    target = int(number)
     lines = text.splitlines()
+    start = None
     for index, line in enumerate(lines):
-        if line.startswith("### ") and line[4:].startswith(number + " "):
-            end = len(lines)
-            for later in range(index + 1, len(lines)):
-                if lines[later].startswith("#"):
-                    end = later
-                    break
-            return index + 1, end
-    return None
+        match = SECTION.match(line)
+        if not match or not match.group(1):
+            continue
+        found = int(match.group(1))
+        if start is None:
+            if found == target:
+                start = index
+            continue
+        if found != target:
+            return start + 1, index
+    if start is None:
+        return None
+    return start + 1, len(lines)
 
 
 def touched_entries(known):
@@ -72,7 +99,7 @@ def touched_entries(known):
             continue
         diff = subprocess.run(
             ["git", "diff", "-U0", "origin/main...HEAD", "--", path],
-            capture_output=True, text=True, cwd=ROOT,
+            capture_output=True, text=True, encoding="utf-8", cwd=ROOT,
         ).stdout
         for line in diff.splitlines():
             if not line.startswith("@@"):
@@ -90,7 +117,7 @@ def main():
     parser.add_argument("--write", action="store_true", help="record today's debt")
     args = parser.parse_args()
 
-    found = violations()
+    found, other = violations()
     if args.write:
         DEBT.write_text("\n".join(sorted(set(found))) + "\n", encoding="utf-8")
         print(f"recorded {len(set(found))} entries in {DEBT.relative_to(ROOT)}")
@@ -98,6 +125,9 @@ def main():
 
     known = recorded()
     failed = False
+    for line in other:
+        print(line)
+        failed = True
     for key in sorted(set(found) - set(known)):
         print(f"VIOLATION: new debt, not in {DEBT.name}: {key}")
         failed = True
@@ -106,7 +136,7 @@ def main():
         failed = True
 
     base = subprocess.run(["git", "show", "origin/main:docs/.doc-debt"],
-                          capture_output=True, text=True, cwd=ROOT)
+                          capture_output=True, text=True, encoding="utf-8", cwd=ROOT)
     if base.returncode == 0:
         was = len([l for l in base.stdout.splitlines() if l.strip() and not l.startswith("#")])
         if len(known) > was:

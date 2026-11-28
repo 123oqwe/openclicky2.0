@@ -234,7 +234,10 @@ def main(argv):
 
     if "--check" in argv:
         on_disk = OUTPUT.read_text(encoding="utf-8") if OUTPUT.exists() else None
-        if on_disk != document:
+        # PARTIAL/FAIL rows are printed for the debt ratchet. This mode fails
+        # only when the committed table is not what the documents render to.
+        stale = on_disk != document
+        if stale:
             findings.append(
                 f"VIOLATION: {OUTPUT.relative_to(ROOT).as_posix()} does not match what the "
                 "documents render to; run python3 scripts/doc-audit.py and commit the result"
@@ -242,7 +245,7 @@ def main(argv):
         for line in findings:
             print(line)
         print(f"doc-audit: {passed}/{total} PASS")
-        return 1 if findings else 0
+        return 1 if stale else 0
 
     OUTPUT.write_text(document, encoding="utf-8")
     print(document)

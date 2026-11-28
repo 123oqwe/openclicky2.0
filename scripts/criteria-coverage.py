@@ -190,9 +190,13 @@ def main(argv):
     doc.append(f"**合计：{total_ok}/{total} 项有位置且有正文；ADR 12 字段：{'全部齐全' if all_ok else '有缺失'}**")
     document = "\n".join(doc)
 
+    stale = False
     if "--check" in argv:
         on_disk = OUTPUT.read_text(encoding="utf-8") if OUTPUT.exists() else None
-        if on_disk != document:
+        # THIN/MISSING rows are printed for the debt ratchet. This mode fails
+        # only when the committed matrix is not what the documents render to.
+        stale = on_disk != document
+        if stale:
             findings.append(
                 f"VIOLATION: {OUTPUT.relative_to(ROOT).as_posix()} does not match what the "
                 "documents render to; run python3 scripts/criteria-coverage.py and commit the result"
@@ -204,6 +208,8 @@ def main(argv):
     for line in findings:
         print(line)
     print(f"coverage: {total_ok}/{total} items have a heading and a body")
+    if "--check" in argv:
+        return 1 if stale else 0
     return 1 if findings else 0
 
 if __name__ == "__main__":

@@ -47,7 +47,7 @@ note "== docs: numbering and coverage =="
 # criteria-coverage.py itself and merges their findings, so running either of them
 # again here would report the recorded debt a second time with nothing to compare it to.
 python3 scripts/check-doc-debt.py \
-  || bad "documentation debt changed: new debt appeared, a recorded entry went stale, or the record grew (scripts/check-doc-debt.py)"
+  || bad "documentation debt changed: new debt appeared, a recorded entry went stale, the record grew, or a generated record is stale (scripts/check-doc-debt.py)"
 python3 scripts/ref-check.py >/dev/null || bad "broken cross-reference (section, ADR id or path)"
 if ! git diff --quiet -- docs/reviews/audit-output.md docs/reviews/standards/coverage.md; then
   bad "a generated docs record has uncommitted changes; regenerate and commit it"
