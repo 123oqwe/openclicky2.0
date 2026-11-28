@@ -147,7 +147,8 @@ if [ "$has_code" -eq 1 ]; then
     echo "$mutation_out"
     # A switch that is on but proves nothing is the failure this whole rule
     # exists to prevent: an empty harness would otherwise report success.
-    if ! echo "$mutation_out" | grep -qE '^prove-can-fail: [5-9][0-9]* guards, every one went red'; then
+    # Five or more, including 10-49: [5-9][0-9]* only matches a first digit of 5-9.
+    if ! echo "$mutation_out" | grep -qE '^prove-can-fail: ([5-9]|[1-9][0-9]+) guards, every one went red'; then
       bad "the mutation harness reported no cases, so it checked nothing"
     fi
   else

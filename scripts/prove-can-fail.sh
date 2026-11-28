@@ -133,11 +133,27 @@ is_windows() {
     esac
 }
 
+# install-sh-guard is a real dash run. Windows has no such shell. A machine
+# without dash — GitHub's macOS image does not ship one — used to take the
+# check's skip branch and exit 0, so the break stayed green. A skipped case is
+# not a proof; leave it out of the run.
+install_guard_runs() {
+    is_windows && return 1
+    command -v dash >/dev/null 2>&1 || return 1
+    return 0
+}
+
+usage() {
+    echo "usage: scripts/prove-can-fail.sh --list | --self-check | --all" >&2
+    echo "       scripts/prove-can-fail.sh <name> -- <break command> -- <check command>" >&2
+    exit 2
+}
+
 case "${1:-}" in
 --list)
     for entry in "${CASES[@]}"; do
         case "$entry" in
-        install-sh-guard*) is_windows && continue ;;
+        install-sh-guard*) install_guard_runs || continue ;;
         esac
         printf '%s\n' "${entry%%|*}"
     done
@@ -174,7 +190,7 @@ case "${1:-}" in
     listed=0
     for entry in "${CASES[@]}"; do
         case "$entry" in
-        install-sh-guard*) is_windows && continue ;;
+        install-sh-guard*) install_guard_runs || continue ;;
         esac
         listed=$((listed + 1))
         name="${entry%%|*}"
@@ -211,5 +227,38 @@ case "${1:-}" in
     fi
     echo "prove-can-fail: ${CASES_RUN} guards, every one went red when its fix was removed"
     exit 0
+    ;;
+*)
+    # Anything else used to fall off the end of this case and exit 0, which is
+    # a green run that proved nothing. The single-case form in the header is
+    # the one shape that does run a proof; a typo or a missing argument does not.
+    name="${1:-}"
+    if [ -z "$name" ] || [ "$name" = "--" ]; then
+        echo "prove-can-fail: missing arguments" >&2
+        usage
+    fi
+    shift
+    if [ "${1:-}" != "--" ]; then
+        echo "prove-can-fail: unknown arguments: $name${*:+ $*}" >&2
+        usage
+    fi
+    shift
+    break_parts=()
+    while [ $# -gt 0 ] && [ "$1" != "--" ]; do
+        break_parts+=("$1")
+        shift
+    done
+    if [ "${1:-}" != "--" ] || [ ${#break_parts[@]} -eq 0 ] || [ $# -lt 2 ]; then
+        echo "prove-can-fail: expected <name> -- <break command> -- <check command>" >&2
+        usage
+    fi
+    shift
+    printf -v break_cmd '%q ' "${break_parts[@]}"
+    printf -v check_cmd '%q ' "$@"
+    refuse_if_dirty
+    CASES_RUN=0
+    UNTRACKED_BASELINE="$(git ls-files --others --exclude-standard | sort)"
+    prove "$name" "$break_cmd" "$check_cmd"
+    exit $?
     ;;
 esac

@@ -23,7 +23,10 @@ note() { printf '%s\n' "$*"; }
 if [ "$(uname -s)" != "Linux" ]; then
   note "   skipped: the | sh line is unix only"
 elif ! command -v dash >/dev/null 2>&1; then
-  note "   skipped: no dash on this machine"
+  # Exit 0 here is a pass. The mutation harness reports Linux from a uname shim
+  # so this branch is the one a Mac takes, and GitHub's macOS image has no dash.
+  # Clean and broken then both pass. Missing dash means the | sh line was not tested.
+  bad "dash is not installed, so the | sh line was not tested"
 else
   if ! grep -q 'curl -fsSL .*install.sh | sh' README.md; then
     bad "README no longer prints the | sh line this check proves"

@@ -22,6 +22,18 @@ CFG = re.compile(r"^\s*#\[cfg(_attr)?\(([^)]*)")
 OPEN_BLOCK = re.compile(r"^\s*(pub\s+)?(fn|mod|impl|struct|enum|trait|const|static)\b")
 
 
+def cfg_gates(expr: str, platform: str) -> bool:
+    """True when `expr` gates on `platform`.
+
+    The capture stops at the first `)`, so `#[cfg(not(unix))]` arrives as
+    `not(unix`. That text contains `unix` and compiles only where the path does
+    not exist. A negated predicate is not a gate.
+    """
+    if re.search(rf"\bnot\s*\(\s*{re.escape(platform)}\b", expr):
+        return False
+    return re.search(rf"\b{re.escape(platform)}\b", expr) is not None
+
+
 def guarded(source: str, offset: int, platform: str) -> bool:
     """True when an attribute above `offset` gates on `platform`.
 
@@ -33,7 +45,7 @@ def guarded(source: str, offset: int, platform: str) -> bool:
     for line in reversed(head.splitlines()):
         m = CFG.match(line)
         if m:
-            return platform in m.group(2)
+            return cfg_gates(m.group(2), platform)
         stripped = line.strip()
         if stripped == "}":
             return False
