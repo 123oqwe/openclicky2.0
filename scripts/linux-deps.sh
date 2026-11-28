@@ -5,15 +5,24 @@
 #
 #   linux-deps.sh build   what compiling the workspace needs
 #   linux-deps.sh smoke   what running the installed bundle needs
+#   linux-deps.sh container  what a bare distro image needs to run the README line
 set -euo pipefail
 
 mode="${1:-build}"
 
-sudo apt-get update
+# A container runs as root and ships no sudo binary at all, so `sudo apt-get` under
+# ubuntu:24.04 fails with "sudo: not found" rather than installing anything.
+if [ "$(id -u)" = "0" ]; then
+  SUDO=""
+else
+  SUDO="sudo"
+fi
+
+$SUDO apt-get update
 
 case "$mode" in
   build)
-    sudo apt-get install -y \
+    $SUDO apt-get install -y \
       libasound2-dev libxcb1-dev libxrandr-dev libdbus-1-dev pkg-config \
       libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
       libsoup-3.0-dev libssl-dev libxkbcommon-dev libxkbcommon-x11-dev \
@@ -22,10 +31,15 @@ case "$mode" in
   smoke)
     # A virtual display plus a session bus, because a WebKit GTK window exits
     # immediately without one.
-    sudo apt-get install -y xvfb dbus-x11 libgl1-mesa-dri xdotool
+    $SUDO apt-get install -y xvfb dbus-x11 libgl1-mesa-dri xdotool
+    ;;
+  container)
+    # What the README's install line needs on a bare distro image, and nothing else.
+    # curl is not in ubuntu:22.04, ubuntu:24.04 or debian:12.
+    $SUDO apt-get install -y curl ca-certificates
     ;;
   *)
-    echo "usage: $0 [build|smoke]" >&2
+    echo "usage: $0 [build|smoke|container]" >&2
     exit 2
     ;;
 esac
