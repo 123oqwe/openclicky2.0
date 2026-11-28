@@ -94,6 +94,17 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: test
         run: cargo test --workspace
+      - name: coverage floor
+        # One number, in a file, measured against the whole workspace. This is the only
+        # place where "there are not enough tests" is a visible quantity instead of an
+        # opinion, and it may only go up.
+        if: runner.os == 'Linux'
+        run: |
+          rustup component add llvm-tools-preview
+          cargo install cargo-llvm-cov --locked
+          floor=$(tr -dc '0-9.' < scripts/coverage-floor)
+          echo "coverage floor: $floor"
+          cargo llvm-cov --workspace --summary-only --fail-under-lines "$floor"
       - name: invariants
         env:
           RUN_INVARIANT_MUTATIONS: "1"
