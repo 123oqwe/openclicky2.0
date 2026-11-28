@@ -852,17 +852,25 @@ fn an_approved_outside_write_still_cannot_touch_the_apps_own_files() {
     assert_eq!(err.code(), "E_POLICY");
 
     // A link pointing at the config is the same file with a different name.
-    let link = dir.path().join("workspace").join("innocent.txt");
-    std::fs::create_dir_all(link.parent().unwrap()).unwrap();
-    let _ = std::fs::remove_file(&link);
-    std::os::unix::fs::symlink(&config_file, &link).unwrap();
-    let err = FsWrite
-        .run(
-            &ctx,
-            &json!({ "path": link.to_string_lossy(), "content": "pwned" }),
-        )
-        .expect_err("a link to the config is the config");
-    assert_eq!(err.code(), "E_POLICY");
+    //
+    // Unix only: Windows needs SeCreateSymbolicLinkPrivilege to make one and a CI
+    // runner may not have it. The protection itself is cross-platform, because
+    // canonicalize resolves reparse points there too; this is the only place the
+    // claim can be demonstrated.
+    #[cfg(unix)]
+    {
+        let link = dir.path().join("workspace").join("innocent.txt");
+        std::fs::create_dir_all(link.parent().unwrap()).unwrap();
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(&config_file, &link).unwrap();
+        let err = FsWrite
+            .run(
+                &ctx,
+                &json!({ "path": link.to_string_lossy(), "content": "pwned" }),
+            )
+            .expect_err("a link to the config is the config");
+        assert_eq!(err.code(), "E_POLICY");
+    }
 
     // The line that keeps the guard from becoming a wall: an approved write to an
     // ordinary file outside the workspace still works.
