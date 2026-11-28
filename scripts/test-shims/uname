@@ -1,0 +1,5 @@
+#!/bin/sh
+# A `uname` that answers Linux, so the install guard can run its real code path on a
+# machine that is not Linux. The scripts themselves have no test switch; this only
+# changes what the machine claims to be.
+echo Linux
