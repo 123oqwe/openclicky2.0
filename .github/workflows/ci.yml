@@ -94,6 +94,17 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: test
         run: cargo test --workspace
+      - name: coverage floor
+        # Measured only on Linux, because that is the only place the number is
+        # compared. Two decimals of slack under today's 70.88 is enough for toolchain
+        # drift and far too small for a function that arrives without tests: 150
+        # uncovered lines take it to 68.44.
+        if: runner.os == 'Linux'
+        run: |
+          rustup component add llvm-tools-preview
+          cargo install cargo-llvm-cov --locked
+          cargo llvm-cov --workspace --summary-only > /tmp/coverage.txt
+          python3 scripts/check-coverage.py /tmp/coverage.txt
       - name: invariants
         env:
           RUN_INVARIANT_MUTATIONS: "1"
