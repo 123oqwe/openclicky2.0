@@ -103,17 +103,90 @@ pub fn read_text(root: &Path, rel: &str, max: usize) -> Result<String> {
 
 /// Atomic write: temp file in the same directory then rename.
 pub fn write_text(root: &Path, rel: &str, content: &str, append: bool) -> Result<PathBuf> {
-    write_text_with(root, rel, content, append, false)
+    // No protected list here: a caller with no list is a caller with no app paths
+    // to protect, which is every test that only cares about the workspace rule.
+    write_text_with(root, rel, content, append, false, &[])
 }
 
 /// `allow_outside` is only ever true after an explicit user approval; the write
 /// is still confined to paths whose parent directory exists.
+/// The same resolution `canonical_escape` uses: walk up to the deepest part that
+/// exists, canonicalise that, and put the rest back. Two lexical answers to "what is
+/// this path" in one file is how `the_policy_and_the_writer_agree_about_what_is_outside`
+/// gets a hole, so the protected check goes through links exactly like the workspace
+/// check does.
+fn resolve_through_links(path: &Path) -> std::path::PathBuf {
+    let mut tail: Vec<std::ffi::OsString> = Vec::new();
+    let mut probe = path.to_path_buf();
+    while !probe.exists() {
+        match probe.file_name() {
+            Some(name) => {
+                tail.push(name.to_os_string());
+                if !probe.pop() {
+                    return path.to_path_buf();
+                }
+            }
+            None => return path.to_path_buf(),
+        }
+    }
+    let mut resolved = std::fs::canonicalize(&probe).unwrap_or(probe);
+    for part in tail.into_iter().rev() {
+        resolved.push(part);
+    }
+    resolved
+}
+
+/// Paths the application keeps its own state in. A tool may never write these,
+/// approved or not: `config.toml` decides which endpoint receives screenshots and
+/// the key, `app.db` holds the conversation, `memory/` holds what the user asked to
+/// be remembered, and `secrets.enc` is the key itself. One approved write here is a
+/// permanent redirect of everything the app sends.
+pub fn protected_hit(path: &Path, protected: &[std::path::PathBuf]) -> Option<std::path::PathBuf> {
+    let candidate = resolve_through_links(&normalise(path).ok()?);
+    protected
+        .iter()
+        .filter_map(|entry| normalise(entry).ok())
+        .find(|entry| {
+            let entry = resolve_through_links(entry);
+            // A database is more than its own filename: `app.db-wal`, `app.db-shm`
+            // and `app.db.bak` are the same thing mid-write, and an exact match
+            // misses all three. Only at the top level, so protecting a directory of
+            // data does not swallow the workspace underneath it.
+            if let (Some(parent), Some(name)) = (entry.parent(), entry.file_name()) {
+                if candidate.parent() == Some(parent) {
+                    if let Some(candidate_name) = candidate.file_name() {
+                        // Any name that starts with the protected one, at the same
+                        // level: `app.db-wal` and `app.db-shm` while the database is
+                        // open, `app.db.bak` from a migration. A hyphen-only rule
+                        // missed the backup, which sits in the real data directory.
+                        let whole = name.to_string_lossy().to_string();
+                        if candidate_name.to_string_lossy().starts_with(&whole) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            candidate == entry || candidate.starts_with(&entry)
+        })
+}
+
+fn refuse_if_protected(path: &Path, protected: &[std::path::PathBuf]) -> Result<()> {
+    match protected_hit(path, protected) {
+        Some(hit) => Err(Error::PolicyDenied(format!(
+            "这是应用的配置或数据文件，工具不能改：{}（不受「允许越界写」影响）",
+            hit.display()
+        ))),
+        None => Ok(()),
+    }
+}
+
 pub fn write_text_with(
     root: &Path,
     rel: &str,
     content: &str,
     append: bool,
     allow_outside: bool,
+    protected: &[std::path::PathBuf],
 ) -> Result<PathBuf> {
     let path = if allow_outside && escapes_workspace(root, rel) {
         let candidate = Path::new(rel);
@@ -133,6 +206,7 @@ pub fn write_text_with(
     } else {
         resolve_in_workspace(root, rel)?
     };
+    refuse_if_protected(&path, protected)?;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| Error::Io(e.to_string()))?;
     }
@@ -176,8 +250,11 @@ fn normalise(path: &Path) -> Result<PathBuf> {
     Ok(out)
 }
 
-pub fn trash(root: &Path, rel: &str) -> Result<PathBuf> {
+pub fn trash(root: &Path, rel: &str, protected: &[std::path::PathBuf]) -> Result<PathBuf> {
     let path = resolve_in_workspace(root, rel)?;
+    // It resolves inside the workspace, so this cannot fire today. It is here so a
+    // later change that lets delete reach outside cannot silently reach these.
+    refuse_if_protected(&path, protected)?;
     if !path.exists() {
         return Err(Error::BadRequest(format!("文件不存在：{rel}")));
     }
@@ -262,7 +339,7 @@ mod tests {
     fn trash_keeps_the_file_recoverable() {
         let dir = tempfile::tempdir().unwrap();
         write_text(dir.path(), "x.txt", "data", false).unwrap();
-        let trashed = trash(dir.path(), "x.txt").unwrap();
+        let trashed = trash(dir.path(), "x.txt", &[]).unwrap();
         assert!(!dir.path().join("x.txt").exists());
         assert!(trashed.exists());
     }

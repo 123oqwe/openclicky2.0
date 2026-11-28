@@ -26,6 +26,8 @@ pub struct AgentDeps {
     pub commands: Arc<dyn crate::ports::CommandRunner>,
     pub permissions: Arc<dyn crate::ports::PermissionProbe>,
     pub workspace: std::path::PathBuf,
+    /// The application's own config and data files, refused to tools outright.
+    pub protected: Vec<std::path::PathBuf>,
     pub model: String,
     pub max_steps: u32,
     pub allow_private_network: bool,
@@ -155,6 +157,7 @@ impl TaskRunner {
         ToolCtx {
             workspace: self.deps.workspace.join("tasks").join(&task.id),
             allow_outside_write,
+            protected: self.deps.protected.clone(),
             task_id: task.id.clone(),
             http: self.deps.http.clone(),
             clock: self.deps.clock.clone(),

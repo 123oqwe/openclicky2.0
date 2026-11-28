@@ -36,7 +36,7 @@
 | spec-only | 还没有对应测试 | 计未执行 |
 
 <!-- TDS-MATRIX:BEGIN -->
-共 73 条：已实现 72、部分 0、spec-only 1。**只有 `已实现` 才能在执行报告中计入通过；`部分` 与 `spec-only` 一律计入未执行/未覆盖。**
+共 74 条：已实现 73、部分 0、spec-only 1。**只有 `已实现` 才能在执行报告中计入通过；`部分` 与 `spec-only` 一律计入未执行/未覆盖。**
 
 | 用例 | 要求 | TC | 状态 | 证据（真实测试） | 备注 |
 |---|---|---|---|---|---|
@@ -112,6 +112,7 @@
 | TC-SEC-006 | 删除逐表报告 | TC-SEC-006 | **已实现** | `crates/core/src/deletion.rs::removes_every_local_artifact_and_reports_it` | 八步 + 范围外声明 |
 | TC-APP-001 | 单实例锁 | TC-APP-001 | **已实现** | `crates/platform/src/singleton.rs::second_instance_is_refused` | — |
 | TC-APP-002 | 更新包验签 | TC-APP-002 | **spec-only** | — | 桌面外壳落地后补 |
+| TC-TOOL-001 | 工具不能写应用自己的配置与数据 | TC-TOOL-001 | **已实现** | `crates/core/tests/e2e_agent.rs::an_approved_outside_write_still_cannot_touch_the_apps_own_files` | protected_hit 拦配置、app.db 同族、符号链接，并保留普通越界写 |
 | TC-KEY-001 | 钥匙存储拒绝写入时保留原因 | TC-KEY-001 | **已实现** | `crates/platform/src/secrets.rs::a_refusal_keeps_the_backends_own_words` | degraded_reason 保留后端原话，#86 |
 <!-- TDS-MATRIX:END -->
 

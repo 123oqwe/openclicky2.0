@@ -519,6 +519,12 @@ fn task(app: &App, goal: &str, dry_run: bool) -> anyhow::Result<()> {
         commands: Arc::new(SystemCommands),
         permissions: Arc::new(permissions::SystemProbe),
         workspace: app.paths.workspace_dir(),
+        protected: vec![
+            app.paths.config_file(),
+            app.paths.db_file(),
+            app.paths.memory_dir(),
+            app.paths.data_dir.join("secrets.enc"),
+        ],
         model: if app.config.provider.deep_model.is_empty() {
             app.config.provider.chat_model.clone()
         } else {
