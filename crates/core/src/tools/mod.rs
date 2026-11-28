@@ -86,6 +86,8 @@ pub struct ToolCtx {
     pub workspace: std::path::PathBuf,
     /// Set only after the user approved writing outside the workspace.
     pub allow_outside_write: bool,
+    /// Config and data files a tool may never write, approved or not.
+    pub protected: Vec<std::path::PathBuf>,
     pub task_id: String,
     pub http: Arc<dyn HttpTransport>,
     pub clock: Arc<dyn Clock>,
@@ -340,6 +342,7 @@ impl Tool for FsWrite {
             str_arg(args, "content")?,
             mode == "append",
             ctx.allow_outside_write,
+            &ctx.protected,
         )?;
         Ok(ToolOutcome::Ok {
             summary: format!("wrote {}", path.display()),
@@ -371,7 +374,7 @@ impl Tool for FsDelete {
             .unwrap_or(false)
     }
     fn run(&self, ctx: &ToolCtx, args: &Value) -> Result<ToolOutcome> {
-        let trashed = fs::trash(&ctx.workspace, str_arg(args, "path")?)?;
+        let trashed = fs::trash(&ctx.workspace, str_arg(args, "path")?, &ctx.protected)?;
         Ok(ToolOutcome::Ok {
             summary: format!("moved to {}", trashed.display()),
             data: serde_json::json!({ "trashed": trashed.to_string_lossy() }),

@@ -76,6 +76,9 @@ fn script_with(store: Arc<Store>, dir: tempfile::TempDir, responses: Vec<ChatRes
         commands: FakeCommands::new(),
         permissions: probe.clone(),
         workspace,
+        // The test workspace is not the app's config; the protected-path tests pass
+        // their own list to prove the guard, these do not need one.
+        protected: Vec::new(),
         model: "fake-model".into(),
         max_steps: 30,
         allow_private_network: false,
@@ -764,4 +767,62 @@ fn a_finished_task_keeps_its_state_even_with_a_broken_checkpoint() {
         "completed_unverified",
         "history must not be rewritten to paused"
     );
+}
+
+#[test]
+fn an_approved_outside_write_still_cannot_touch_the_apps_own_files() {
+    use openclicky_core::tools::{fs, FsWrite, Tool, ToolCtx};
+
+    let dir = tempfile::tempdir().unwrap();
+    let config_dir = dir.path().join("config");
+    let data_dir = dir.path().join("data");
+    std::fs::create_dir_all(&config_dir).unwrap();
+    std::fs::create_dir_all(&data_dir).unwrap();
+    let config_file = config_dir.join("config.toml");
+    std::fs::write(&config_file, "base_url = \"https://api.openai.com/v1\"\n").unwrap();
+    let db = data_dir.join("app.db");
+    std::fs::write(&db, b"sqlite").unwrap();
+    let secrets = data_dir.join("secrets.enc");
+    std::fs::write(&secrets, b"key").unwrap();
+
+    let ctx = ToolCtx {
+        workspace: dir.path().join("workspace"),
+        // The user said yes to writing outside the workspace. That approval is
+        // exactly what used to reach these files.
+        allow_outside_write: true,
+        protected: vec![
+            config_file.clone(),
+            db.clone(),
+            data_dir.join("memory"),
+            secrets.clone(),
+        ],
+        task_id: "t1".into(),
+        http: ScriptedHttp::new(vec![]),
+        clock: FakeClock::new(),
+        commands: FakeCommands::new(),
+        allow_private_network: false,
+        shell_enabled: false,
+    };
+
+    for target in [&config_file, &db, &secrets] {
+        let err = FsWrite
+            .run(
+                &ctx,
+                &json!({ "path": target.to_string_lossy(), "content": "pwned" }),
+            )
+            .expect_err("a protected file must be refused even with approval");
+        assert_eq!(
+            err.code(),
+            "E_POLICY",
+            "{} — {}",
+            target.display(),
+            err.user_message()
+        );
+        assert!(
+            !std::fs::read_to_string(target).unwrap().contains("pwned"),
+            "{} was overwritten",
+            target.display()
+        );
+    }
+    assert!(fs::protected_hit(&config_file, &ctx.protected).is_some());
 }

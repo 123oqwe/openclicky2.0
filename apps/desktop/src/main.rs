@@ -318,6 +318,14 @@ fn build_state(
         commands: Arc::from(SystemCommands),
         permissions: Arc::from(platform_permissions::SystemProbe),
         workspace: paths.workspace_dir(),
+        // What a tool may never write, whatever the user approved. Filled from
+        // the same Paths the rest of the app uses, so it cannot drift.
+        protected: vec![
+            paths.config_file(),
+            paths.db_file(),
+            paths.memory_dir(),
+            paths.data_dir.join("secrets.enc"),
+        ],
         model: if cfg.provider.deep_model.is_empty() {
             cfg.provider.chat_model.clone()
         } else {
