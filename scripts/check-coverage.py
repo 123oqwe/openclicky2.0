@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """Fail when workspace line coverage is below scripts/coverage-floor.
 
-Comparing the number here instead of trusting `--fail-under-lines` is deliberate: that
-flag was measured to exit 0 on 70.88% with a floor of 70.89, so it proved nothing. This
-script reads the same summary and does the comparison where it can be watched failing.
+The summary row is regions, then functions, then lines, then optional branches.
+The first percentage is region coverage. Line coverage is the third, which is
+what `--fail-under-lines` reads from the JSON export.
 """
 import argparse
 import re
 import sys
 
-TOTAL = re.compile(r"^TOTAL\s+.*?([0-9]+\.[0-9]+)%", re.MULTILINE)
+TOTAL_LINE = re.compile(r"^TOTAL\b.*$", re.MULTILINE)
+PERCENT = re.compile(r"([0-9]+\.[0-9]+)%")
 
 
 def main():
@@ -19,10 +20,14 @@ def main():
     args = parser.parse_args()
 
     text = open(args.summary, encoding="utf-8").read() if args.summary else sys.stdin.read()
-    match = TOTAL.search(text)
-    if match is None:
+    row = TOTAL_LINE.search(text)
+    if row is None:
         raise SystemExit("VIOLATION: no TOTAL line in the coverage summary")
-    actual = float(match.group(1))
+    percents = PERCENT.findall(row.group(0))
+    # Regions, functions, lines. A branch percentage may follow and is not the gate.
+    if len(percents) < 3:
+        raise SystemExit("VIOLATION: no line-coverage column on the TOTAL line")
+    actual = float(percents[2])
     floor = float(open(args.floor, encoding="utf-8").read().strip())
     print(f"coverage: {actual}% lines, floor {floor}%")
     if actual < floor:

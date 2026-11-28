@@ -96,9 +96,9 @@ jobs:
         run: cargo test --workspace
       - name: coverage floor
         # Measured only on Linux, because that is the only place the number is
-        # compared. Two decimals of slack under today's 70.88 is enough for toolchain
-        # drift and far too small for a function that arrives without tests: 150
-        # uncovered lines take it to 68.44.
+        # compared. The gate reads the Lines column (72.54). The floor is two
+        # decimals under that, so toolchain drift fits and an untested function
+        # does not.
         if: runner.os == 'Linux'
         run: |
           rustup component add llvm-tools-preview
