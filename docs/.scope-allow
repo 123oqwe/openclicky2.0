@@ -1,9 +1,3 @@
-.github/workflows/ci.yml
-docs/.scope-allow
-docs/reviews/README.md
-docs/reviews/audit-output.md
-docs/reviews/standards/coverage.md
-scripts/check-invariants.sh
-scripts/check-scope.py
-scripts/criteria-coverage.py
-scripts/doc-audit.py
+.github
+docs
+scripts

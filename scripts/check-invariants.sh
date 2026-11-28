@@ -43,8 +43,9 @@ note "== docs: numbering and coverage =="
 # --check, not the plain run. The plain run rewrites the record, so a stale one
 # would pass here and be corrected by whoever inspected it next: evidence that
 # repairs itself on inspection is not evidence.
-python3 scripts/doc-audit.py --check >/dev/null \
-  || bad "doc-audit found a gap, or docs/reviews/audit-output.md is stale (scripts/doc-audit.py --check)"
+# One owner for both audits. check-doc-debt.py runs doc-audit.py and
+# criteria-coverage.py itself and merges their findings, so running either of them
+# again here would report the recorded debt a second time with nothing to compare it to.
 python3 scripts/check-doc-debt.py \
   || bad "documentation debt changed: new debt appeared, a recorded entry went stale, or the record grew (scripts/check-doc-debt.py)"
 python3 scripts/ref-check.py >/dev/null || bad "broken cross-reference (section, ADR id or path)"

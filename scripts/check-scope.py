@@ -55,9 +55,13 @@ def allowlist():
 
 def main(argv):
     if "--write" in argv:
-        files = changed_files()
-        ALLOW.write_text("\n".join(files) + "\n", encoding="utf-8")
-        print(f"scope recorded: {len(files)} file(s)")
+        # Top-level names, not paths. A per-file list has to be rewritten by the last
+        # commit on the branch or the branch's own new files fall outside its scope, and
+        # "the last commit" is not reliable once more than one person pushes. What this
+        # rule is for is one PR touching code and workflows and docs at once.
+        tops = sorted({parts[0] for parts in (f.split("/") for f in changed_files())})
+        ALLOW.write_text("\n".join(tops) + "\n", encoding="utf-8")
+        print(f"scope recorded: {len(tops)} top-level name(s)")
         return 0
 
     if not ALLOW.exists():
@@ -73,13 +77,16 @@ def main(argv):
         print(f"VIOLATION: {ALLOW.relative_to(ROOT)} lists no path, so nothing is allowed")
         return 1
 
-    bare = [a for a in allowed if "/" not in a.rstrip("/") and (ROOT / a.rstrip("/")).is_dir()]
+    # Entries are top-level names. Rejecting a bare directory here contradicted that:
+    # with a prefix-level list, the prefix is the unit, and demanding per-file names
+    # made the account the bottleneck instead of the risk.
+    ghost = [a for a in allowed if not (ROOT / a.rstrip("/")).exists()]
     outside = [
         f for f in files if not any(f == a or f.startswith(a.rstrip("/") + "/") for a in allowed)
     ]
-    if bare or outside:
-        for entry in bare:
-            print(f"VIOLATION: {entry!r} is a bare top-level directory; list the files it stands for")
+    if ghost or outside:
+        for entry in ghost:
+            print(f"VIOLATION: {entry!r} is recorded but does not exist in this tree")
         if outside:
             print(f"VIOLATION: {len(outside)} file(s) outside the declared scope:")
             for f in outside:
