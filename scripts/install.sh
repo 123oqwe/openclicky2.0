@@ -13,7 +13,24 @@
 # Override the destination with PREFIX (default ~/.local/bin), pin a version with
 # VERSION (default: the latest release), and skip the launch at the end with
 # NO_LAUNCH=1, which is what CI and a headless machine need.
-set -euo pipefail
+
+# The line above the ones people copy from the README ends in `| sh`, and on Ubuntu
+# and Debian that is dash, which has no `set -o pipefail`: it stopped at that line and
+# installed nothing. The documentation is the promise, so this script has to work
+# under sh. When it is a real file, hand it to bash, which is where the rest of this
+# was written; when it arrived down a pipe there is no file to hand over, so the
+# options below stay inside what POSIX sh supports.
+if [ -z "${BASH_VERSION:-}" ] && [ -f "$0" ] && [ -r "$0" ] && command -v bash >/dev/null 2>&1; then
+    exec bash "$0" "$@"
+fi
+
+set -eu
+# pipefail is bash's. Without it a failing command inside a pipeline can hide, which
+# is why every pipeline here ends in a check or a fallback rather than trusting the
+# status of the last stage alone.
+if [ -n "${BASH_VERSION:-}" ]; then
+    set -o pipefail
+fi
 
 REPO="123oqwe/openclicky2.0"
 PREFIX="${PREFIX:-$HOME/.local/bin}"
