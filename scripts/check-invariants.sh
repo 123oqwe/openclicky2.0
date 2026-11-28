@@ -123,20 +123,31 @@ if [ "$has_code" -eq 1 ]; then
                 | grep -vE '\./|/dist/' || true)
   [ -z "$inline_deps" ] || bad "a workflow installs packages inline; call scripts/linux-deps.sh ($inline_deps)"
 
+  note "== platform code sits behind a platform gate =="
+  # Twice now a change compiled on macOS and Linux and failed on Windows: a set of
+  # types in a struct literal, then std::os::unix in a test body. `clippy --all-targets`
+  # on macOS cannot see either, because the code never compiles there.
+  python3 scripts/check-platform-gates.py >/dev/null \
+    || bad "a platform-only path has no cfg gate (scripts/check-platform-gates.py)"
+
   note "== new public surface has a line in the test matrix =="
   python3 scripts/check-new-tests.py \
     || bad "a new public function has no case in docs/04-test-design.md"
 
   note "== invariant cases can fail =="
   if [ "${RUN_INVARIANT_MUTATIONS:-0}" = "1" ]; then
-    mutation_out=$(python3 scripts/check-invariants-can-fail.py 2>&1) || {
+    mutation_out=$(bash scripts/prove-can-fail.sh --all 2>&1) || {
       echo "$mutation_out"
       bad "an invariant case cannot fail, so it proves nothing"
+    }
+    self_out=$(bash scripts/prove-can-fail.sh --self-check 2>&1) || {
+      echo "$self_out"
+      bad "the harness accepts a break that does nothing, so it proves nothing"
     }
     echo "$mutation_out"
     # A switch that is on but proves nothing is the failure this whole rule
     # exists to prevent: an empty harness would otherwise report success.
-    if ! echo "$mutation_out" | grep -q '^OK '; then
+    if ! echo "$mutation_out" | grep -qE '^prove-can-fail: [5-9][0-9]* guards, every one went red'; then
       bad "the mutation harness reported no cases, so it checked nothing"
     fi
   else
@@ -153,14 +164,8 @@ if [ "$has_code" -eq 1 ]; then
   fi
 
   note "== release: the crate and the bundle carry the same version =="
-  # Three files have to move together (Cargo.toml, tauri.conf.json, Cargo.lock) and
-  # nothing checked them. One missed edit publishes OpenClicky_2.0.3.dmg with 2.1.0
-  # inside it, and a version number is public the moment it lands.
-  crate_version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
-  bundle_version=$(python3 -c 'import json;print(json.load(open("apps/desktop/tauri.conf.json"))["version"])' 2>/dev/null || true)
-  if [ "$crate_version" != "$bundle_version" ]; then
-    bad "Cargo.toml says ${crate_version:-?} and tauri.conf.json says ${bundle_version:-?}"
-  fi
+  bash scripts/check-release-versions.sh \
+    || bad "Cargo.toml and tauri.conf.json disagree about the version"
 
   note "== macos: the bundle declares audio input, or TCC refuses to prompt =="
   # A probing code path is not enough. Without the entitlement, macOS answers
@@ -178,47 +183,7 @@ if [ "$has_code" -eq 1 ]; then
   fi
 
   note "== install: the command the README prints runs an install under sh =="
-  # The README ends that line in `| sh`, which on Ubuntu and Debian is dash, and the
-  # script used to stop there on `set -o pipefail` having installed nothing. This
-  # runs a real install through the pipe against a fake release, because the earlier
-  # version of this check stopped at --help and never executed a line of the body.
-  if [ "$(uname -s)" != "Linux" ]; then
-    note "   skipped: the | sh line is unix only"
-  elif ! command -v dash >/dev/null 2>&1; then
-    note "   skipped: no dash on this machine"
-  else
-    if ! grep -q 'curl -fsSL .*install.sh | sh' README.md; then
-      bad "README no longer prints the | sh line this check proves"
-    fi
-    inst_root="$(mktemp -d)"
-    inst_keep="${inst_root}"
-    trap 'rm -rf "$inst_keep"' EXIT
-    mkdir -p "${inst_root}/rel" "${inst_root}/prefix"
-    case "$(uname -s)" in
-      Darwin) inst_asset=openclicky-macos ;;
-      *) inst_asset=openclicky-linux ;;
-    esac
-    printf '#!/bin/sh\necho "openclicky 9.9.9 (fake install)"\n' > "${inst_root}/rel/${inst_asset}"
-    chmod +x "${inst_root}/rel/${inst_asset}"
-    if command -v sha256sum >/dev/null 2>&1; then
-      ( cd "${inst_root}/rel" && sha256sum "$inst_asset" > SHA256SUMS )
-    else
-      ( cd "${inst_root}/rel" && shasum -a 256 "$inst_asset" | awk '{print $1"  '"$inst_asset"'"}' > SHA256SUMS )
-    fi
-    printf '{"assets":[{"name":"%s"}]}\n' "OpenClicky_9.9.9_amd64.AppImage" > "${inst_root}/rel/release.json"
-    inst_out="$(cat scripts/install.sh 2>/dev/null | PREFIX="${inst_root}/prefix" NO_LAUNCH=1 \
-        RELEASE_BASE="file://${inst_root}/rel" RELEASES_API="file://${inst_root}/rel/release.json" \
-        dash -s 2>&1 || true)"
-    if [ ! -f "${inst_root}/prefix/openclicky" ]; then
-      bad "the README's | sh line installed nothing under dash: $(printf '%s\n' "$inst_out" | head -1)"
-    elif [ ! -x "${inst_root}/prefix/openclicky" ]; then
-      bad "the README's | sh line left a binary that is not executable"
-    elif [ -z "$("${inst_root}/prefix/openclicky" --version 2>/dev/null || true)" ]; then
-      bad "the installed binary does not answer --version"
-    else
-      note "   ok: dash piped an install that landed an executable binary"
-    fi
-  fi
+  bash scripts/check-install-under-sh.sh || bad "the README's | sh line does not install under dash"
 
   note "== overlay: no native fullscreen transition on a transparent window =="
   # `fullscreen: true` maps to Fullscreen::Borderless(None). tao runs
