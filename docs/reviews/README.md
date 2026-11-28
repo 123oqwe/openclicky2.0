@@ -14,12 +14,12 @@
 ## 标准出处
 
 - 验收标准原文：`docs/reviews/standards/source-conversation.md`（从共享链接提取，未改写）。
-- 条目覆盖矩阵：`docs/reviews/standards/coverage.md`（`scripts/criteria-coverage.py` 生成，88/88）。
+- 条目覆盖矩阵：`docs/reviews/standards/coverage.md`（`scripts/criteria-coverage.py` 生成，`--check` 校验是否过期）。
 - 产品 PRD 逐条对照与缺口：`docs/reviews/standards/product-prd-gap.md`。
 
 ## 判定口径
 
-- **机器检查**（`scripts/doc-audit.py`）：只回答"这一项被写到了吗"，输出 `docs/reviews/audit-output.md`。PASS 不代表内容合格。
+- **机器检查**（`scripts/doc-audit.py`）：只回答"这一项被写到了吗"，输出 `docs/reviews/audit-output.md`；标记只在本条目自己的章节里找。PASS 不代表内容合格。
 - **人工判定**：回答"写到了且写对了没有"，逐条给证据位置与残留疑问。
 - 结论只有三种：`PASS`（可进入下一步）、`PASS WITH RISK`（可进入，但风险已登记）、`FAIL`（必须修完再验）。
 

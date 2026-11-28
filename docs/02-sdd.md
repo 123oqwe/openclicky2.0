@@ -15,7 +15,16 @@
 
 ### 01 文档标识、版本、负责人与适用范围
 
-见上表。修改权限：契约（`ports.rs`、DDL、注解语法、错误码）变更需同步 `01-tech-prd.md` 并新增 ADR；模块内部实现变更只需更新本文。
+| 项 | 值 |
+|---|---|
+| 文档编号 | SDD-02（本文）；需求侧为 PRD-01，验收为 ACC-06 |
+| 版本 | 随代码同一提交变更，`Cargo.toml`、`tauri.conf.json`、`Cargo.lock` 三处一致 |
+| 状态 | 已批准：任何改动走 PR，合并即生效，不存在"草稿态"的本文 |
+| 适用发布 | 2.1.x 起；2.2.0 之前的结构描述以 `docs/00-baseline.md` 为准 |
+| 负责人 | 本文由改动方负责，reviewer 只判断"是否符合"，不代为改写 |
+
+修改权限：契约（`ports.rs`、DDL、注解语法、错误码）变更需同步 `01-tech-prd.md`
+并新增 ADR；模块内部实现变更只需更新本文。契约变更未配 ADR 时，review 直接拒。
 
 ### 02 需求分配与追踪
 
@@ -759,8 +768,21 @@ hotkey_up → final transcribe → diff(末 20s) → 需要则改正 → cleanup
 
 ### 10 状态机与转换规则
 
-见 tech-prd §07 表。补充：`Dictating` 与 `Listening` 互斥；`Driving` 仅由任务产生，用户任何输入立即退出。
+转换表不抄在这里。唯一实现是 `crates/core/src/agent/mod.rs::transition`，它接受
+`from` 与 `to` 两个 `TaskState` 并返回 `Result<TaskState>`，非法转换返回
+`Error::IllegalTransition`。抄一份表就有两份真相，第二份一定先错。
 
+围绕这段代码有三条不变量，任何流程、并发与恢复路径下都必须成立。
+
+1. 状态的唯一写入点是 `transition`。存储层写入 `tasks.state` 只发生在它返回
+   `Ok` 之后，所以库里不可能出现它没批准过的值。
+2. 转换是原子的。读当前状态、比较、写入在同一事务内完成，两个执行者同时尝试
+   同一条转换时只有一个成功，另一个看到 `IllegalTransition` 而不是覆盖。
+3. 终态不再离开。`Failed` 与 `Paused` 的出边只允许经由 `resume_pending` 显式
+   重建执行，而不是在流式回调里顺手改状态。
+
+`agent/mod.rs::tests::transitions_follow_the_table` 断言第一条，M004 的迁移演练
+覆盖第三者的恢复路径。
 ### 11 任务状态机（权威表）
 
 | 当前 | 事件 | 新状态 | 守卫 |

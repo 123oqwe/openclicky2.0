@@ -5,6 +5,15 @@ The criteria are encoded as required markers per numbered item, taken from the
 reference conversation (parts 1-6). This is a presence check, not a judgement:
 a PASS means "the document addresses this item"; the human review record in
 docs/reviews/ carries the verdict and the residual doubts.
+
+A marker counts only inside the section it belongs to. Searching the whole
+document let a term anywhere in it — a cross-reference, a passing mention in a
+neighbouring section — satisfy an item whose own section said nothing about it,
+which is the failure this check exists to catch. PARTIAL fails for the same
+reason: a section carrying half its markers is a section nobody finished.
+
+    doc-audit.py            render the table into docs/reviews/audit-output.md
+    doc-audit.py --check    render in memory, fail if the file on disk differs
 """
 import sys, pathlib, re
 
@@ -14,6 +23,12 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+OUTPUT = ROOT / "docs" / "reviews" / "audit-output.md"
+
+# `## 22.1 模型接入` is how 01-tech-prd splits section 22 and `### 06.1` is a
+# subsection of SDD 06, so a sub-numbered heading opens the section of its own
+# number. `(?![0-9])` keeps `## 123 x` from being read as section 12.
+SECTION = re.compile(r"^#{2,3}\s+(?:(\d{1,2})(?:\.\d+)?)(?![0-9])")
 
 def items(*pairs):
     return list(pairs)
@@ -118,17 +133,44 @@ STEP5 = items(
  ("18 缺陷管理", ["复现", "回归"]),
  ("19 进入/通过/退出/发布", ["进入", "退出", "阻断"]),
  ("20 角色与维护", ["维护人", "变更"]),
- ("AI-1 系统而非模型", ["提示词", "请求体", "状态"]),
- ("AI-2 过程与禁止行为", ["禁止行为", "越权"]),
- ("AI-3 task/trial 口径", ["task", "trial", "n/N"]),
- ("AI-4 评分器验证", ["评分", "反例"]),
+ ("21 AI-1 系统而非模型", ["提示词", "请求体", "状态"]),
+ ("22 AI-2 过程与禁止行为", ["禁止行为", "越权"]),
+ ("23 AI-3 task/trial 口径", ["task", "trial", "n/N"]),
+ ("24 AI-4 评分器验证", ["评分", "反例"]),
 )
 
+def sections(text):
+    """Body of every numbered section, keyed by the number on its heading."""
+    found = {}
+    current = None
+    body = []
+    for line in text.splitlines():
+        m = SECTION.match(line)
+        if m:
+            number = int(m.group(1)) if m.group(1) else None
+            if number != current:
+                if current is not None and current not in found:
+                    found[current] = "\n".join(body)
+                current = number
+                body = []
+        if current is not None:
+            body.append(line)
+    if current is not None and current not in found:
+        found[current] = "\n".join(body)
+    return found
+
+def section_of(name):
+    return int(re.match(r"^(\d{1,2})", name).group(1))
+
 def check_file(path, checks):
-    text = path.read_text(encoding="utf-8").lower()
+    bodies = sections(path.read_text(encoding="utf-8").lower())
     rows = []
     for name, markers in checks:
-        missing = [m for m in markers if m.lower() not in text]
+        body = bodies.get(section_of(name))
+        if body is None:
+            rows.append((name, "FAIL", ["（无此编号章节）"]))
+            continue
+        missing = [m for m in markers if m.lower() not in body]
         status = "PASS" if not missing else ("PARTIAL" if len(missing) < len(markers) else "FAIL")
         rows.append((name, status, missing))
     return rows
@@ -161,13 +203,53 @@ def fmt(title, rows):
     out.append("")
     return "\n".join(out)
 
-def main():
-    print("# 文档验收：机器检查结果\n")
-    print(fmt("第 1 步 · 技术实现 PRD", check_file(ROOT/"docs"/"01-tech-prd.md", STEP1)))
-    print(fmt("第 2 步 · ADR（13 份）", check_adrs()))
-    print(fmt("第 3 步 · SDD", check_file(ROOT/"docs"/"02-sdd.md", STEP3)))
-    print(fmt("第 4 步 · Agent 工作方式", check_file(ROOT/"docs"/"03-agent-playbook.md", STEP4)))
-    print(fmt("第 5 步 · 测试设计与验收规格", check_file(ROOT/"docs"/"04-test-design.md", STEP5)))
+def main(argv):
+    adr_rows = check_adrs()
+    steps = [
+        ("第 1 步 · 技术实现 PRD", "docs/01-tech-prd.md", check_file(ROOT/"docs"/"01-tech-prd.md", STEP1)),
+        (f"第 2 步 · ADR（{len(adr_rows)} 份）", "docs/adr", adr_rows),
+        ("第 3 步 · SDD", "docs/02-sdd.md", check_file(ROOT/"docs"/"02-sdd.md", STEP3)),
+        ("第 4 步 · Agent 工作方式", "docs/03-agent-playbook.md", check_file(ROOT/"docs"/"03-agent-playbook.md", STEP4)),
+        ("第 5 步 · 测试设计与验收规格", "docs/04-test-design.md", check_file(ROOT/"docs"/"04-test-design.md", STEP5)),
+    ]
+    findings = []
+    statuses = {}
+    parts = ["# 文档验收：机器检查结果\n"]
+    for title, where, rows in steps:
+        parts.append(fmt(title, rows))
+        for name, status, missing in rows:
+            statuses[status] = statuses.get(status, 0) + 1
+            if status != "PASS":
+                findings.append(
+                    f"VIOLATION: {where} · {name} · {status} · missing={', '.join(missing)}"
+                )
+    passed = statuses.get("PASS", 0)
+    total = sum(statuses.values())
+    parts.append(
+        "**合计：{}/{} PASS；PARTIAL {}；FAIL {}**\n".format(
+            passed, total, statuses.get("PARTIAL", 0), statuses.get("FAIL", 0)
+        )
+    )
+    document = "\n".join(parts)
+
+    if "--check" in argv:
+        on_disk = OUTPUT.read_text(encoding="utf-8") if OUTPUT.exists() else None
+        if on_disk != document:
+            findings.append(
+                f"VIOLATION: {OUTPUT.relative_to(ROOT).as_posix()} does not match what the "
+                "documents render to; run python3 scripts/doc-audit.py and commit the result"
+            )
+        for line in findings:
+            print(line)
+        print(f"doc-audit: {passed}/{total} PASS")
+        return 1 if findings else 0
+
+    OUTPUT.write_text(document, encoding="utf-8")
+    print(document)
+    for line in findings:
+        print(line)
+    print(f"doc-audit: {passed}/{total} PASS")
+    return 1 if findings else 0
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main(sys.argv[1:]))

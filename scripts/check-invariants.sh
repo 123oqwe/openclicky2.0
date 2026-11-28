@@ -40,9 +40,18 @@ for p in docs/05-deployment.md docs/06-acceptance.md; do
 done
 
 note "== docs: numbering and coverage =="
-python3 scripts/doc-audit.py >/dev/null || bad "doc-audit failed"
-python3 scripts/criteria-coverage.py >/dev/null || bad "criteria-coverage failed"
+# --check, not the plain run. The plain run rewrites the record, so a stale one
+# would pass here and be corrected by whoever inspected it next: evidence that
+# repairs itself on inspection is not evidence.
+# One owner for both audits. check-doc-debt.py runs doc-audit.py and
+# criteria-coverage.py itself and merges their findings, so running either of them
+# again here would report the recorded debt a second time with nothing to compare it to.
+python3 scripts/check-doc-debt.py \
+  || bad "documentation debt changed: new debt appeared, a recorded entry went stale, or the record grew (scripts/check-doc-debt.py)"
 python3 scripts/ref-check.py >/dev/null || bad "broken cross-reference (section, ADR id or path)"
+if ! git diff --quiet -- docs/reviews/audit-output.md docs/reviews/standards/coverage.md; then
+  bad "a generated docs record has uncommitted changes; regenerate and commit it"
+fi
 
 note "== tds: matrix must match the real tests =="
 if ! python3 scripts/tds-evidence.py >/dev/null; then
