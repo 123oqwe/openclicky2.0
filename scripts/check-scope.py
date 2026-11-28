@@ -3,13 +3,13 @@
 
 A change that quietly edits files outside its declared scope is how a "small fix"
 turns into an unreviewable diff. The scope is declared in `docs/.scope-allow`,
-one path prefix per line, next to the task it belongs to.
+one path per line, rewritten by the task that owns it.
 
-    check-scope.sh             compare origin/main...HEAD against the allowlist
-    check-scope.sh --write <f> record the prefixes of the current diff
+    check-scope.py             compare origin/main...HEAD against the allowlist
+    check-scope.py --write     record the full paths of the current diff
 
-No allowlist means no declared task, so nothing to check: the rule stays quiet
-rather than failing every branch that predates it.
+Full paths, not top-level directories: `scripts` allowed every script in the
+repository to change under a rule that claimed to be about one task's files.
 """
 import pathlib
 import subprocess
@@ -44,36 +44,49 @@ def changed_files():
     return [line for line in diff.splitlines() if line]
 
 
+def allowlist():
+    entries = []
+    for line in ALLOW.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            entries.append(line)
+    return entries
+
+
 def main(argv):
     if "--write" in argv:
         files = changed_files()
-        prefixes = sorted({pathlib.PurePosixPath(f).parts[0] for f in files})
-        ALLOW.write_text("\n".join(prefixes) + "\n", encoding="utf-8")
-        print(f"scope recorded: {', '.join(prefixes)}")
+        ALLOW.write_text("\n".join(files) + "\n", encoding="utf-8")
+        print(f"scope recorded: {len(files)} file(s)")
         return 0
 
     if not ALLOW.exists():
-        # Nothing is declared, so there is nothing to compare against. Reading
-        # the diff here would fail on a shallow clone for no reason.
-        print("scope: no task declared, nothing to check")
-        return 0
+        # A missing allowlist is a deleted one. Passing here is how a task that
+        # deleted the file it was judged against skipped the judgement.
+        print(f"VIOLATION: {ALLOW.relative_to(ROOT)} is missing, so the declared scope is unknown")
+        print("Restore it, or record the scope with scripts/check-scope.py --write.")
+        return 1
 
     files = changed_files()
-    allowed = [
-        line.strip()
-        for line in ALLOW.read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.startswith("#")
-    ]
+    allowed = allowlist()
+    if not allowed:
+        print(f"VIOLATION: {ALLOW.relative_to(ROOT)} lists no path, so nothing is allowed")
+        return 1
+
+    bare = [a for a in allowed if "/" not in a.rstrip("/") and (ROOT / a.rstrip("/")).is_dir()]
     outside = [
         f for f in files if not any(f == a or f.startswith(a.rstrip("/") + "/") for a in allowed)
     ]
-    if outside:
-        print(f"{len(outside)} file(s) outside the declared scope ({', '.join(allowed)}):")
-        for f in outside:
-            print("  -", f)
+    if bare or outside:
+        for entry in bare:
+            print(f"VIOLATION: {entry!r} is a bare top-level directory; list the files it stands for")
+        if outside:
+            print(f"VIOLATION: {len(outside)} file(s) outside the declared scope:")
+            for f in outside:
+                print("  -", f)
         print("Either narrow the diff or widen docs/.scope-allow with a reason.")
         return 1
-    print(f"scope: every changed file is inside {', '.join(allowed)}")
+    print(f"scope: all {len(files)} changed file(s) are inside the declared scope")
     return 0
 
 

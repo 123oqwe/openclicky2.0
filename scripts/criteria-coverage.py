@@ -3,9 +3,14 @@
 conversation requires?
 
 Inputs are the verbatim requirement lists in
-docs/reviews/standards/source-conversation.md. This script only checks that each
-numbered item has a home in the document; `scripts/doc-audit.py` checks the
+docs/reviews/standards/source-conversation.md. This script checks that each
+numbered item has a home **with a body**: a heading with nothing under it puts a
+tick in the matrix and answers nothing, so a section shorter than MIN_BODY
+non-blank characters reports THIN and fails. `scripts/doc-audit.py` checks the
 substance markers, and docs/reviews/step*.md carry the human verdict.
+
+    criteria-coverage.py            render the matrix into docs/reviews/standards/coverage.md
+    criteria-coverage.py --check    render in memory, fail if the file on disk differs
 """
 import re, sys, pathlib
 
@@ -15,6 +20,16 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+OUTPUT = ROOT / "docs" / "reviews" / "standards" / "coverage.md"
+
+# 200 non-blank characters is roughly two sentences of Chinese prose: below that
+# a heading is a placeholder, not an answer. #94.
+MIN_BODY = 200
+
+# `## 22.1 模型接入` is how 01-tech-prd splits section 22 and `### 06.1` is a
+# subsection of SDD 06, so a sub-numbered heading opens the section of its own
+# number. `(?![0-9])` keeps `## 123 x` from being read as section 12.
+SECTION = re.compile(r"^#{2,3}\s+(?:(\d{1,2})(?:\.\d+)?)(?![0-9])")
 
 PART1 = [
  "文档基本信息与生效范围","产品摘要与产品定义","用户问题、研究证据与立项依据","目标用户、角色与利益相关方",
@@ -63,48 +78,76 @@ PART6 = [
  "人与 Agent 的执行约定","阻塞、返工、依赖变更与应急路径","执行进度、瓶颈与工程反馈","规范落实、更新与例外管理",
 ]
 
-def headings(text):
-    return [l.strip() for l in text.splitlines() if re.match(r'^#{2,3}\s', l.strip())]
+def body_length(body):
+    return len("".join(body.split()))
 
-def numbered_headings(text, limit):
+def numbered_sections(text, limit):
+    """Heading and body of every numbered section, keyed by its number."""
     found = {}
-    for h in headings(text):
-        m = re.match(r'^#{2,3}\s+(\d{1,2})[\.、 ]', h)
+    current = None
+    head = ""
+    body = []
+    for line in text.splitlines():
+        m = SECTION.match(line)
         if m:
-            n = int(m.group(1))
-            if 1 <= n <= limit and n not in found:
-                found[n] = h
-    return found
+            n = int(m.group(1)) if m.group(1) else None
+            if n != current:
+                if current is not None and current not in found:
+                    found[current] = (head, "\n".join(body))
+                current = n
+                head = line.strip()
+                body = []
+        if current is not None:
+            body.append(line)
+    if current is not None and current not in found:
+        found[current] = (head, "\n".join(body))
+    return {n: v for n, v in found.items() if 1 <= n <= limit}
 
 def report(title, path, items, extra_marker=None):
     text = (ROOT / path).read_text(encoding='utf-8')
-    found = numbered_headings(text, len(items))
+    found = numbered_sections(text, len(items))
     rows = []
     ok = 0
+    thin = 0
     for i, name in enumerate(items, 1):
-        h = found.get(i)
-        status = "OK" if h else "MISSING"
-        if h:
+        h, body = found.get(i, (None, ""))
+        chars = body_length(body)
+        if not h:
+            status = "MISSING"
+        elif chars < MIN_BODY:
+            status = "THIN"
+            thin += 1
+        else:
+            status = "OK"
             ok += 1
-        rows.append((i, name, h or "—", status))
-    out = [f"## {title}", "", f"文件：`{path}`　条目：{ok}/{len(items)}", "",
-           "| # | 标准条目（原文） | 文档中的位置 | 结论 |", "|---|---|---|---|"]
-    for i, name, h, st in rows:
-        out.append(f"| {i:02d} | {name} | {h} | {st} |")
+        rows.append((i, name, h or "—", chars, status))
+    out = [f"## {title}", "", f"文件：`{path}`　条目：{ok}/{len(items)}　过薄：{thin}", "",
+           "| # | 标准条目（原文） | 文档中的位置 | 正文字符 | 结论 |", "|---|---|---|---|---|"]
+    for i, name, h, chars, st in rows:
+        out.append(f"| {i:02d} | {name} | {h} | {chars} | {st} |")
     if extra_marker:
         present = extra_marker in text
         out.append("")
         out.append(f"判断标准小节：{'存在' if present else '**缺失**'}")
     out.append("")
-    return "\n".join(out), ok, len(items)
+    findings = []
+    for i, name, h, chars, st in rows:
+        if st == "OK":
+            continue
+        detail = "no numbered heading" if st == "MISSING" else f"{chars} non-blank chars, needs {MIN_BODY}"
+        findings.append(f"VIOLATION: {path} · {i:02d} {name} · {st} · {detail}")
+    return "\n".join(out), ok, len(items), findings
 
-def main():
+def main(argv):
     parts = [
         report("第 2 部分 · 技术实现 PRD", "docs/01-tech-prd.md", PART2, "判断标准"),
         report("第 4 部分 · SDD", "docs/02-sdd.md", PART4, "设计评审"),
         report("第 6 部分 · Agent 工作方式", "docs/03-agent-playbook.md", PART6, "最终审查"),
         report("第 5 部分 · 测试设计与验收规格", "docs/04-test-design.md", PART5 + PART5_AI, "判据自检"),
     ]
+    findings = []
+    for _, _, _, rows in parts:
+        findings.extend(rows)
     # ADRs: 12 fields across every file
     adr_dir = ROOT / "docs" / "adr"
     files = sorted(adr_dir.glob("ADR-*.md"))
@@ -126,27 +169,42 @@ def main():
         missing = [i for i in range(1, 13) if i not in numbered]
         if missing:
             all_ok = False
+            findings.append(f"VIOLATION: docs/adr/{f.name} · 12 fields · MISSING · 缺 {missing}")
         adr_rows.append((f.name, "OK" if not missing else f"缺 {missing}"))
-    adr_out = ["## 第 3 部分 · ADR（12 个字段 × 13 份）", "",
+    adr_out = [f"## 第 3 部分 · ADR（12 个字段 × {len(files)} 份）", "",
                "| 文件 | 12 字段 |", "|---|---|"]
     for name, st in adr_rows:
         adr_out.append(f"| {name} | {st} |")
     adr_out.append("")
 
     doc = ["# 标准条目覆盖矩阵", "",
-           "本矩阵逐条回答：对话里要求的每一项，在文档里有没有对应的位置。",
+           "本矩阵逐条回答：对话里要求的每一项，在文档里有没有对应的位置，以及该位置的正文有多厚。",
            "（内容是否合格由 `scripts/doc-audit.py` 与 `docs/reviews/step*.md` 判断。）", ""]
     total_ok = 0
     total = 0
-    for text, ok, n in parts:
+    for text, ok, n, _ in parts:
         doc.append(text)
         total_ok += ok
         total += n
     doc.append("\n".join(adr_out))
-    doc.append(f"**合计：{total_ok}/{total} 项有位置；ADR 12 字段：{'全部齐全' if all_ok else '有缺失'}**")
-    (ROOT / "docs/reviews/standards/coverage.md").write_text("\n".join(doc), encoding="utf-8")
-    print("\n".join(doc[-3:]))
-    return 0 if all_ok and total_ok == total else 1
+    doc.append(f"**合计：{total_ok}/{total} 项有位置且有正文；ADR 12 字段：{'全部齐全' if all_ok else '有缺失'}**")
+    document = "\n".join(doc)
+
+    if "--check" in argv:
+        on_disk = OUTPUT.read_text(encoding="utf-8") if OUTPUT.exists() else None
+        if on_disk != document:
+            findings.append(
+                f"VIOLATION: {OUTPUT.relative_to(ROOT).as_posix()} does not match what the "
+                "documents render to; run python3 scripts/criteria-coverage.py and commit the result"
+            )
+    else:
+        OUTPUT.write_text(document, encoding="utf-8")
+        print("\n".join(doc[-3:]))
+
+    for line in findings:
+        print(line)
+    print(f"coverage: {total_ok}/{total} items have a heading and a body")
+    return 1 if findings else 0
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))

@@ -44,10 +44,13 @@ jobs:
         run: bash scripts/check-close-evidence.sh "${{ github.event.pull_request.number }}"
       - name: Structural invariants
         run: bash scripts/check-invariants.sh
-      - name: Numbered-item coverage (88/88)
-        run: python3 scripts/criteria-coverage.py
-      - name: Substance check
-        run: python3 scripts/doc-audit.py
+      # --check, so the job reports on the records it committed instead of
+      # rewriting them: a generator that fixes what it inspects makes the
+      # inspection worthless.
+      - name: Numbered-item coverage has a heading and a body
+        run: python3 scripts/criteria-coverage.py --check
+      - name: Substance markers, per section
+        run: python3 scripts/doc-audit.py --check
       - name: Cross-references (section, ADR id, path)
         run: python3 scripts/ref-check.py
       - name: TDS matrix is generated and current

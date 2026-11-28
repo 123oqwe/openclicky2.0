@@ -40,9 +40,17 @@ for p in docs/05-deployment.md docs/06-acceptance.md; do
 done
 
 note "== docs: numbering and coverage =="
-python3 scripts/doc-audit.py >/dev/null || bad "doc-audit failed"
-python3 scripts/criteria-coverage.py >/dev/null || bad "criteria-coverage failed"
+# --check, not the plain run. The plain run rewrites the record, so a stale one
+# would pass here and be corrected by whoever inspected it next: evidence that
+# repairs itself on inspection is not evidence.
+python3 scripts/doc-audit.py --check >/dev/null \
+  || bad "doc-audit found a gap, or docs/reviews/audit-output.md is stale (scripts/doc-audit.py --check)"
+python3 scripts/criteria-coverage.py --check >/dev/null \
+  || bad "criteria-coverage found a gap, or docs/reviews/standards/coverage.md is stale (scripts/criteria-coverage.py --check)"
 python3 scripts/ref-check.py >/dev/null || bad "broken cross-reference (section, ADR id or path)"
+if ! git diff --quiet -- docs/reviews/audit-output.md docs/reviews/standards/coverage.md; then
+  bad "a generated docs record has uncommitted changes; regenerate and commit it"
+fi
 
 note "== tds: matrix must match the real tests =="
 if ! python3 scripts/tds-evidence.py >/dev/null; then
