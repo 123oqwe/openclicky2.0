@@ -112,34 +112,78 @@ prove() {
     return 0
 }
 
-# One list, two readers. `--all` runs it and `--list` prints it, so a case that is
-# dropped from the run while still being listed cannot pass unnoticed. A hand-written
-# second list is how protected-paths went missing while the floor still passed.
-CASES=(
-"install-sh-guard|python3 scripts/break-one.py scripts/install.sh \"set -eu\" \"set -eu\\nBASHISM=(a b c)\"|bash scripts/check-install-under-sh.sh"
-"version-agreement|python3 scripts/break-one.py apps/desktop/tauri.conf.json '\"version\": \"2.1.1\",' '\"version\": \"9.9.9\",'|bash scripts/check-release-versions.sh"
-"protected-paths|python3 scripts/break-one.py crates/core/src/tools/fs.rs \"refuse_if_protected(&path, protected)?;\" \"let _ = (&path, &protected);\"|cargo test -q -p openclicky-core an_approved_outside_write_still_cannot_touch"
-"platform-gates|python3 scripts/break-one.py crates/core/tests/e2e_agent.rs \"#[cfg(unix)]\" \"\"|python3 scripts/check-platform-gates.py"
-"inv-d1-capture-gate|python3 scripts/break-one.py crates/core/src/privacy.rs \"self.opens.fetch_add(1, Ordering::SeqCst);\" \"let _ = Ordering::SeqCst;\"|cargo test -q -p openclicky-core capture_gate_counts_only_user_actions"
-"one-ask-one-unit|python3 scripts/break-one.py crates/core/src/usage.rs \"let waived = self.is_waived(input);\" \"let waived = true;\"|cargo test -q -p openclicky-core voice_costs_one_unit"
-"outside-write-agrees|python3 scripts/break-one.py crates/core/src/tools/fs.rs \"-> bool {\" \"-> bool { return false;\"|cargo test -q -p openclicky-core the_policy_and_the_writer_agree_about_what_is_outside"
-)
+# Every case lives in scripts/prove-can-fail.d/*.case, one line each:
+#
+#   platform: linux | darwin | windows | any     (optional, first line, default any)
+#   name|break command|check command
+#
+# One directory, two readers. A case that exists but cannot be parsed is listed and
+# not run, which is how protected-paths went missing while the floor still passed.
+CASES_DIR="$ROOT/scripts/prove-can-fail.d"
 
-# The install line cannot run from a CRLF checkout.
-is_windows() {
-    case "$(uname -s)" in
-    MINGW* | MSYS* | CYGWIN*) return 0 ;;
-    *) return 1 ;;
+platform_matches() {
+    case "$1" in
+    any | "") return 0 ;;
+    linux) case "$(uname -s)" in Linux) return 0 ;; esac ;; 
+    darwin) case "$(uname -s)" in Darwin) return 0 ;; esac ;;
+    windows)
+        case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) return 0 ;; esac
+        ;;
     esac
+    return 1
+}
+
+# The floor is a number in the directory, not in this script, so adding a case does
+# not require editing code and deleting one is visible as a lower count.
+floor_count() {
+    if [ -f "$CASES_DIR/floor" ]; then
+        tr -dc '0-9' <"$CASES_DIR/floor"
+    else
+        echo 0
+    fi
+}
+
+case_files() {
+    [ -d "$CASES_DIR" ] || return 0
+    for f in "$CASES_DIR"/*.case; do
+        [ -e "$f" ] || continue
+        echo "$f"
+    done
+}
+
+case_platform() {
+    sed -n 's/^platform:[[:space:]]*//p' "$1" | head -1
+}
+
+case_line() {
+    grep -v -e '^platform:' -e '^[[:space:]]*#' -e '^[[:space:]]*$' "$1" | head -1
+}
+
+case_name() {
+    local line
+    line="$(case_line "$1")"
+    printf '%s' "${line%%|*}"
+}
+
+case_break() {
+    local line rest
+    line="$(case_line "$1")"
+    rest="${line#*|}"
+    printf '%s' "${rest%%|*}"
+}
+
+case_check() {
+    local line
+    line="$(case_line "$1")"
+    printf '%s' "${line##*|}"
 }
 
 case "${1:-}" in
 --list)
-    for entry in "${CASES[@]}"; do
-        case "$entry" in
-        install-sh-guard*) is_windows && continue ;;
-        esac
-        printf '%s\n' "${entry%%|*}"
+    for f in $(case_files); do
+        platform_matches "$(case_platform "$f")" || continue
+        case_name "$f"
+        echo
     done
     exit 0
     ;;
@@ -172,22 +216,18 @@ case "${1:-}" in
     status=0
     CASES_RUN=0
     listed=0
-    for entry in "${CASES[@]}"; do
-        case "$entry" in
-        install-sh-guard*) is_windows && continue ;;
-        esac
+    for f in $(case_files); do
+        platform_matches "$(case_platform "$f")" || continue
         listed=$((listed + 1))
-        name="${entry%%|*}"
-        rest="${entry#*|}"
-        break_cmd="${rest%%|*}"
-        check_cmd="${rest#*|}"
-        case "$name" in
-        install-sh-guard*)
-            break_cmd="PATH=\"$ROOT/scripts/test-shims:$PATH\" $break_cmd"
-            check_cmd="PATH=\"$ROOT/scripts/test-shims:$PATH\" $check_cmd"
-            ;;
-        esac
-        # PROVE_DEMO_* exist so a demonstration never edits a file. Three times in this
+        name="$(case_name "$f")"
+        if [ -z "$name" ]; then
+            echo "FAIL $f: no name|break|check line"
+            status=1
+            continue
+        fi
+        break_cmd="$(case_break "$f")"
+        check_cmd="$(case_check "$f")"
+        # PROVE_DEMO_* so a demonstration never edits a file. Three times in this
         # session a demo mutation was still in the tree when the commit was made.
         if [ "${PROVE_DEMO_NOOP:-0}" = "1" ] && [ "$CASES_RUN" -eq 0 ]; then
             break_cmd="true"
@@ -196,20 +236,27 @@ case "${1:-}" in
             break
         fi
         prove "$name" "$break_cmd" "$check_cmd" || status=1
+        case "$name" in
+        install-sh-guard) ;;
+        esac
     done
-    if [ "${CASES_RUN:-0}" -lt 5 ]; then
-        echo "prove-can-fail: FAILED — only $CASES_RUN cases ran; this harness must run at least 5"
-        exit 1
-    fi
+    floor="$(floor_count)"
     if [ "$CASES_RUN" -ne "$listed" ]; then
         echo "prove-can-fail: FAILED — $listed cases are listed but $CASES_RUN ran; a case was dropped or skipped silently"
+        exit 1
+    fi
+    # Counted from disk, not from what ran, because a platform-filtered case is a
+    # legitimate absence and a deleted file is not.
+    present="$(case_files | wc -l | tr -d ' ')"
+    if [ "$present" -lt "$floor" ]; then
+        echo "prove-can-fail: FAILED — $present .case files on disk but the floor is $floor; a case went missing"
         exit 1
     fi
     if [ "$status" -ne 0 ]; then
         echo "prove-can-fail: FAILED"
         exit 1
     fi
-    echo "prove-can-fail: ${CASES_RUN} guards, every one went red when its fix was removed"
+    echo "prove-can-fail: $CASES_RUN guards, every one went red when its fix was removed"
     exit 0
     ;;
 esac

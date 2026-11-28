@@ -1,0 +1,2 @@
+platform: any
+one-ask-one-unit|python3 scripts/break-one.py crates/core/src/usage.rs "let waived = self.is_waived(input);" "let waived = true;"|cargo test -q -p openclicky-core voice_costs_one_unit

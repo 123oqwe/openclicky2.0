@@ -1,0 +1,2 @@
+platform: any
+protected-paths|python3 scripts/break-one.py crates/core/src/tools/fs.rs "refuse_if_protected(&path, protected)?;" "let _ = (&path, &protected);"|cargo test -q -p openclicky-core an_approved_outside_write_still_cannot_touch

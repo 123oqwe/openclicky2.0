@@ -147,7 +147,10 @@ if [ "$has_code" -eq 1 ]; then
     echo "$mutation_out"
     # A switch that is on but proves nothing is the failure this whole rule
     # exists to prevent: an empty harness would otherwise report success.
-    if ! echo "$mutation_out" | grep -qE '^prove-can-fail: [5-9][0-9]* guards, every one went red'; then
+    # Any count, not [5-9][0-9]*: the harness grew past ten cases and the old pattern
+    # would have called "10 guards" a failure. How many must exist is the floor file's
+    # business, and the harness reads that.
+    if ! echo "$mutation_out" | grep -qE '^prove-can-fail: [0-9]+ guards, every one went red'; then
       bad "the mutation harness reported no cases, so it checked nothing"
     fi
   else
@@ -202,6 +205,10 @@ print(next((str(x.get("fullscreen","")).lower() for x in w if x.get("label")=="o
 else
   note "== code invariants skipped: no Cargo.toml in this tree =="
 fi
+
+# Printed so the harness's floor and this file's rule count can be compared by a
+# reader in one glance, and so neither number has to be repeated in prose.
+echo "rules: $(grep -c '^  *bad "' "$0")"
 
 if [ "$fail" -ne 0 ]; then
   echo "invariants: FAILED"

@@ -1,0 +1,2 @@
+platform: any
+inv-d1-capture-gate|python3 scripts/break-one.py crates/core/src/privacy.rs "self.opens.fetch_add(1, Ordering::SeqCst);" "let _ = Ordering::SeqCst;"|cargo test -q -p openclicky-core capture_gate_counts_only_user_actions

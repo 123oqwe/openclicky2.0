@@ -1,0 +1,2 @@
+platform: any
+platform-gates|python3 scripts/break-one.py crates/core/tests/e2e_agent.rs "#[cfg(unix)]" ""|python3 scripts/check-platform-gates.py

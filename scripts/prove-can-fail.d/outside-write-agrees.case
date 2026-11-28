@@ -1,0 +1,2 @@
+platform: any
+outside-write-agrees|python3 scripts/break-one.py crates/core/src/tools/fs.rs "-> bool {" "-> bool { return false;"|cargo test -q -p openclicky-core the_policy_and_the_writer_agree_about_what_is_outside

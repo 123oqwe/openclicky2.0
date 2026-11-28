@@ -1,0 +1,2 @@
+platform: linux
+install-sh-guard|python3 scripts/break-one.py scripts/install.sh \"set -eu\" \"set -eu\\nBASHISM=(a b c)\"|bash scripts/check-install-under-sh.sh
