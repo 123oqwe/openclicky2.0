@@ -45,8 +45,8 @@ note "== docs: numbering and coverage =="
 # repairs itself on inspection is not evidence.
 python3 scripts/doc-audit.py --check >/dev/null \
   || bad "doc-audit found a gap, or docs/reviews/audit-output.md is stale (scripts/doc-audit.py --check)"
-python3 scripts/criteria-coverage.py --check >/dev/null \
-  || bad "criteria-coverage found a gap, or docs/reviews/standards/coverage.md is stale (scripts/criteria-coverage.py --check)"
+python3 scripts/check-doc-debt.py \
+  || bad "documentation debt changed: new debt appeared, a recorded entry went stale, or the record grew (scripts/check-doc-debt.py)"
 python3 scripts/ref-check.py >/dev/null || bad "broken cross-reference (section, ADR id or path)"
 if ! git diff --quiet -- docs/reviews/audit-output.md docs/reviews/standards/coverage.md; then
   bad "a generated docs record has uncommitted changes; regenerate and commit it"

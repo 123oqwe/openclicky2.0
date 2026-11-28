@@ -1,0 +1,34 @@
+docs/01-tech-prd.md :: 01 基线/负责人/范围 :: PARTIAL
+docs/02-sdd.md :: 02 需求分配与约束 :: PARTIAL
+docs/02-sdd.md :: 04 单元详细设计 :: FAIL
+docs/02-sdd.md :: 07 同步接口契约 :: PARTIAL
+docs/02-sdd.md :: 11 算法与规则 :: FAIL
+docs/02-sdd.md :: 12 并发/取消/资源 :: PARTIAL
+docs/02-sdd.md :: 16 第三方与适配 :: PARTIAL
+docs/02-sdd.md :: 16 第三方系统、插件与复用组件 :: THIN
+docs/02-sdd.md :: 18 日志/指标/审计 :: PARTIAL
+docs/02-sdd.md :: 19 配置与生命周期 :: PARTIAL
+docs/02-sdd.md :: 20 迁移与兼容 :: PARTIAL
+docs/03-agent-playbook.md :: 07 调度、工作量、在制品限制与里程碑 :: THIN
+docs/03-agent-playbook.md :: 13 风险分级与专项检查触发条件 :: THIN
+docs/03-agent-playbook.md :: 18 阻塞、返工、依赖变更与应急路径 :: THIN
+docs/03-agent-playbook.md :: 19 执行进度、瓶颈与工程反馈 :: THIN
+docs/04-test-design.md :: 06 判定依据 :: PARTIAL
+docs/04-test-design.md :: 07 用例规格 :: PARTIAL
+docs/04-test-design.md :: 08 执行规程、初始化与清理 :: THIN
+docs/04-test-design.md :: 09 环境与替身 :: PARTIAL
+docs/04-test-design.md :: 10 测试数据、版本与隔离 :: THIN
+docs/04-test-design.md :: 12 安全与权限 :: PARTIAL
+docs/04-test-design.md :: 14 用户体验、多端兼容与无障碍 :: THIN
+docs/04-test-design.md :: 16 自动化与回归 :: PARTIAL
+docs/04-test-design.md :: 16 自动化策略、回归与测试自身质量 :: THIN
+docs/04-test-design.md :: 17 执行记录、证据包与结果报告 :: THIN
+docs/04-test-design.md :: 17 证据与报告 :: FAIL
+docs/04-test-design.md :: 18 缺陷管理、修复确认与回归 :: THIN
+docs/04-test-design.md :: 19 进入/通过/退出/发布 :: PARTIAL
+docs/04-test-design.md :: 20 角色、资源、变更与维护规则 :: THIN
+docs/04-test-design.md :: 21 测整个系统而不只是模型 :: THIN
+docs/04-test-design.md :: 22 AI-2 过程与禁止行为 :: PARTIAL
+docs/04-test-design.md :: 22 结果、过程约束与禁止行为 :: THIN
+docs/04-test-design.md :: 23 AI-3 task/trial 口径 :: FAIL
+docs/04-test-design.md :: 23 数据集、重复运行与统计口径 :: THIN
