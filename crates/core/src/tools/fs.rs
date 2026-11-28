@@ -155,11 +155,12 @@ pub fn protected_hit(path: &Path, protected: &[std::path::PathBuf]) -> Option<st
             if let (Some(parent), Some(name)) = (entry.parent(), entry.file_name()) {
                 if candidate.parent() == Some(parent) {
                     if let Some(candidate_name) = candidate.file_name() {
-                        let prefix = format!("{}-", name.to_string_lossy());
+                        // Any name that starts with the protected one, at the same
+                        // level: `app.db-wal` and `app.db-shm` while the database is
+                        // open, `app.db.bak` from a migration. A hyphen-only rule
+                        // missed the backup, which sits in the real data directory.
                         let whole = name.to_string_lossy().to_string();
-                        if candidate_name.to_string_lossy() == whole
-                            || candidate_name.to_string_lossy().starts_with(&prefix)
-                        {
+                        if candidate_name.to_string_lossy().starts_with(&whole) {
                             return true;
                         }
                     }

@@ -831,8 +831,24 @@ fn an_approved_outside_write_still_cannot_touch_the_apps_own_files() {
     let wal = data_dir.join("app.db-wal");
     std::fs::write(&wal, b"wal").unwrap();
     let err = FsWrite
-        .run(&ctx, &json!({ "path": wal.to_string_lossy(), "content": "pwned" }))
+        .run(
+            &ctx,
+            &json!({ "path": wal.to_string_lossy(), "content": "pwned" }),
+        )
         .expect_err("the write-ahead log belongs to the database");
+    assert_eq!(err.code(), "E_POLICY");
+
+    // The backup a migration leaves behind belongs to the database too. This one is
+    // not hypothetical: the data directory on the machine this was written on has a
+    // 4096-byte app.db.bak in it, and overwriting it fails silently.
+    let bak = data_dir.join("app.db.bak");
+    std::fs::write(&bak, b"backup").unwrap();
+    let err = FsWrite
+        .run(
+            &ctx,
+            &json!({ "path": bak.to_string_lossy(), "content": "pwned" }),
+        )
+        .expect_err("the pre-migration backup belongs to the database");
     assert_eq!(err.code(), "E_POLICY");
 
     // A link pointing at the config is the same file with a different name.
@@ -841,7 +857,10 @@ fn an_approved_outside_write_still_cannot_touch_the_apps_own_files() {
     let _ = std::fs::remove_file(&link);
     std::os::unix::fs::symlink(&config_file, &link).unwrap();
     let err = FsWrite
-        .run(&ctx, &json!({ "path": link.to_string_lossy(), "content": "pwned" }))
+        .run(
+            &ctx,
+            &json!({ "path": link.to_string_lossy(), "content": "pwned" }),
+        )
         .expect_err("a link to the config is the config");
     assert_eq!(err.code(), "E_POLICY");
 
@@ -849,7 +868,10 @@ fn an_approved_outside_write_still_cannot_touch_the_apps_own_files() {
     // ordinary file outside the workspace still works.
     let notes = data_dir.join("notes.txt");
     FsWrite
-        .run(&ctx, &json!({ "path": notes.to_string_lossy(), "content": "hello" }))
+        .run(
+            &ctx,
+            &json!({ "path": notes.to_string_lossy(), "content": "hello" }),
+        )
         .expect("an approved outside write to a file of the user's own must succeed");
     assert_eq!(std::fs::read_to_string(&notes).unwrap(), "hello");
 }
