@@ -123,6 +123,13 @@ if [ "$has_code" -eq 1 ]; then
                 | grep -vE '\./|/dist/' || true)
   [ -z "$inline_deps" ] || bad "a workflow installs packages inline; call scripts/linux-deps.sh ($inline_deps)"
 
+  note "== platform code sits behind a platform gate =="
+  # Twice now a change compiled on macOS and Linux and failed on Windows: a set of
+  # types in a struct literal, then std::os::unix in a test body. `clippy --all-targets`
+  # on macOS cannot see either, because the code never compiles there.
+  python3 scripts/check-platform-gates.py >/dev/null \
+    || bad "a platform-only path has no cfg gate (scripts/check-platform-gates.py)"
+
   note "== new public surface has a line in the test matrix =="
   python3 scripts/check-new-tests.py \
     || bad "a new public function has no case in docs/04-test-design.md"
