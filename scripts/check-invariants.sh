@@ -177,32 +177,47 @@ if [ "$has_code" -eq 1 ]; then
     fi
   fi
 
-  note "== install: the command the README prints works under sh =="
-  # The README ends the line in `| sh`, and on Ubuntu and Debian that is dash, which
-  # has no `set -o pipefail`. The script used to die there having installed nothing,
-  # and the release smoke never noticed because it installs the .deb instead of
-  # running the line the documentation promises.
-  # Captured rather than piped into grep -q: grep exits on the first match, the
-  # writer takes SIGPIPE, and this script runs with pipefail, so the pipeline
-  # reports failure for output that was correct.
-  if command -v dash >/dev/null 2>&1; then
-    dash_out="$(dash scripts/install.sh --help 2>&1 || true)"
-    case "$dash_out" in
-      *"Illegal option"*)
-        bad "scripts/install.sh dies under dash; the README's | sh installs nothing" ;;
-      usage:*)
-        ;;
-      *)
-        bad "scripts/install.sh did not print usage under dash: ${dash_out%%\n*}" ;;
-    esac
-    # The piped route has no file to hand to bash, so it exercises the POSIX branch.
-    piped_out="$(dash -c 'set -- --help; . ./scripts/install.sh' 2>&1 || true)"
-    case "$piped_out" in
-      usage:*) ;;
-      *) bad "scripts/install.sh does not survive being piped into dash: ${piped_out%%\n*}" ;;
-    esac
+  note "== install: the command the README prints runs an install under sh =="
+  # The README ends that line in `| sh`, which on Ubuntu and Debian is dash, and the
+  # script used to stop there on `set -o pipefail` having installed nothing. This
+  # runs a real install through the pipe against a fake release, because the earlier
+  # version of this check stopped at --help and never executed a line of the body.
+  if [ "$(uname -s)" != "Linux" ]; then
+    note "   skipped: the | sh line is unix only"
+  elif ! command -v dash >/dev/null 2>&1; then
+    note "   skipped: no dash on this machine"
   else
-    note "   skipped: no dash on this machine; CI runs this on ubuntu"
+    if ! grep -q 'curl -fsSL .*install.sh | sh' README.md; then
+      bad "README no longer prints the | sh line this check proves"
+    fi
+    inst_root="$(mktemp -d)"
+    inst_keep="${inst_root}"
+    trap 'rm -rf "$inst_keep"' EXIT
+    mkdir -p "${inst_root}/rel" "${inst_root}/prefix"
+    case "$(uname -s)" in
+      Darwin) inst_asset=openclicky-macos ;;
+      *) inst_asset=openclicky-linux ;;
+    esac
+    printf '#!/bin/sh\necho "openclicky 9.9.9 (fake install)"\n' > "${inst_root}/rel/${inst_asset}"
+    chmod +x "${inst_root}/rel/${inst_asset}"
+    if command -v sha256sum >/dev/null 2>&1; then
+      ( cd "${inst_root}/rel" && sha256sum "$inst_asset" > SHA256SUMS )
+    else
+      ( cd "${inst_root}/rel" && shasum -a 256 "$inst_asset" | awk '{print $1"  '"$inst_asset"'"}' > SHA256SUMS )
+    fi
+    printf '{"assets":[{"name":"%s"}]}\n' "OpenClicky_9.9.9_amd64.AppImage" > "${inst_root}/rel/release.json"
+    inst_out="$(cat scripts/install.sh 2>/dev/null | PREFIX="${inst_root}/prefix" NO_LAUNCH=1 \
+        RELEASE_BASE="file://${inst_root}/rel" RELEASES_API="file://${inst_root}/rel/release.json" \
+        dash -s 2>&1 || true)"
+    if [ ! -f "${inst_root}/prefix/openclicky" ]; then
+      bad "the README's | sh line installed nothing under dash: $(printf '%s\n' "$inst_out" | head -1)"
+    elif [ ! -x "${inst_root}/prefix/openclicky" ]; then
+      bad "the README's | sh line left a binary that is not executable"
+    elif [ -z "$("${inst_root}/prefix/openclicky" --version 2>/dev/null || true)" ]; then
+      bad "the installed binary does not answer --version"
+    else
+      note "   ok: dash piped an install that landed an executable binary"
+    fi
   fi
 
   note "== overlay: no native fullscreen transition on a transparent window =="

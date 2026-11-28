@@ -20,7 +20,7 @@
 # under sh. When it is a real file, hand it to bash, which is where the rest of this
 # was written; when it arrived down a pipe there is no file to hand over, so the
 # options below stay inside what POSIX sh supports.
-if [ -z "${BASH_VERSION:-}" ] && [ -f "$0" ] && [ -r "$0" ]; then
+if [ -z "${BASH_VERSION:-}" ] && [ -f "$0" ] && [ -r "$0" ] && command -v bash >/dev/null 2>&1; then
     exec bash "$0" "$@"
 fi
 
